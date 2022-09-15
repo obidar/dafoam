@@ -106,6 +106,23 @@ DAkOmegaSSTFIML::DAkOmegaSSTFIML(
           "F3",
           this->coeffDict_,
           false)),
+    neuralNetworkParams_(IOobject(
+            "neuralNetworkParams",
+            mesh.time().constant(),
+            mesh,
+            IOobject::MUST_READ,
+            IOobject::NO_WRITE)),
+
+        numHiddenLayers_(readScalar(neuralNetworkParams_.lookup("numHiddenLayers"))),
+
+        numInputs_(readScalar(neuralNetworkParams_.lookup("numInputs"))),
+
+        numOutputs_(readScalar(neuralNetworkParams_.lookup("numOutputs"))),
+
+        numNeuronsPerLayer_(readScalar(neuralNetworkParams_.lookup("numNeuronsPerLayer"))),
+
+        typeForwardPropagation_(word(neuralNetworkParams_.lookup("typeForwardPropagation"))),
+
       // Augmented variables
       omega_(const_cast<volScalarField&>(
           mesh_.thisDb().lookupObject<volScalarField>("omega"))),
@@ -955,92 +972,195 @@ void DAkOmegaSSTFIML::calcResiduals(const dictionary& options)
             / (mag(U_[cI]) * mag(UGrad[cI] & U_[cI]) + mag(U_[cI] & UGrad[cI] & U_[cI]));
     }
 
-    // TENSORFLOW
-
-    // Datastructure for output
-    volScalarField betaML_ = betaFieldInversionML_;
-
-    // Structure for tensors in ML
-    label numCells = mesh_.cells().size();
-
-    // Some tensorflow pointer requirements
-    TF_Status* status_ = TF_NewStatus();
-    TF_SessionOptions* options_ = TF_NewSessionOptions();
-    TF_Session* sess_ = TF_NewSession(graph_, options_, status_);
-
-    float inputVals[numCells][numInputs];
-    const std::vector<std::int64_t> inputDims = {numCells, numInputs};
-
-    forAll(mesh_.C(), cI)
+    // TENSORFLOW - forward propagation using the Tensorflow API 
+    if (typeForwardPropagation_ == "TF-API")
     {
-        scalar i1 = (QCriterion_[cI] - meanArray[0]) / (stdArray[0]);
-        scalar i2 = (UGradMisalignment_[cI] - meanArray[1]) / (stdArray[1]);
-        scalar i3 = (pGradAlongStream_[cI] - meanArray[2]) / (stdArray[2]);
-        scalar i4 = (turbulenceIntensity_[cI] - meanArray[3]) / (stdArray[3]);
-        scalar i5 = (ReT_[cI] - meanArray[4]) / (stdArray[4]);
-        scalar i6 = (convectionTKE_[cI] - meanArray[5]) / (stdArray[5]);
-        scalar i7 = (curvature_[cI] - meanArray[6]) / (stdArray[6]);
-        scalar i8 = (pressureStress_[cI] - meanArray[7]) / (stdArray[7]);
-        scalar i9 = (tauRatio_[cI] - meanArray[8]) / (stdArray[8]);
+        // Datastructure for output
+        volScalarField betaML_ = betaFieldInversionML_;
 
-        assignValueCheckAD(inputVals[cI][0], i1);
-        assignValueCheckAD(inputVals[cI][1], i2);
-        assignValueCheckAD(inputVals[cI][2], i3);
-        assignValueCheckAD(inputVals[cI][3], i4);
-        assignValueCheckAD(inputVals[cI][4], i5);
-        assignValueCheckAD(inputVals[cI][5], i6);
-        assignValueCheckAD(inputVals[cI][6], i7);
-        assignValueCheckAD(inputVals[cI][7], i8);
-        assignValueCheckAD(inputVals[cI][8], i9);
+        // Structure for tensors in ML
+        label numCells = mesh_.cells().size();
+
+        // Some tensorflow pointer requirements
+        TF_Status* status_ = TF_NewStatus();
+        TF_SessionOptions* options_ = TF_NewSessionOptions();
+        TF_Session* sess_ = TF_NewSession(graph_, options_, status_);
+
+        float inputVals[numCells][numInputs];
+        const std::vector<std::int64_t> inputDims = {numCells, numInputs};
+
+        forAll(mesh_.C(), cI)
+        {
+            scalar i1 = (QCriterion_[cI] - meanArray[0]) / (stdArray[0]);
+            scalar i2 = (UGradMisalignment_[cI] - meanArray[1]) / (stdArray[1]);
+            scalar i3 = (pGradAlongStream_[cI] - meanArray[2]) / (stdArray[2]);
+            scalar i4 = (turbulenceIntensity_[cI] - meanArray[3]) / (stdArray[3]);
+            scalar i5 = (ReT_[cI] - meanArray[4]) / (stdArray[4]);
+            scalar i6 = (convectionTKE_[cI] - meanArray[5]) / (stdArray[5]);
+            scalar i7 = (curvature_[cI] - meanArray[6]) / (stdArray[6]);
+            scalar i8 = (pressureStress_[cI] - meanArray[7]) / (stdArray[7]);
+            scalar i9 = (tauRatio_[cI] - meanArray[8]) / (stdArray[8]);
+
+            assignValueCheckAD(inputVals[cI][0], i1);
+            assignValueCheckAD(inputVals[cI][1], i2);
+            assignValueCheckAD(inputVals[cI][2], i3);
+            assignValueCheckAD(inputVals[cI][3], i4);
+            assignValueCheckAD(inputVals[cI][4], i5);
+            assignValueCheckAD(inputVals[cI][5], i6);
+            assignValueCheckAD(inputVals[cI][6], i7);
+            assignValueCheckAD(inputVals[cI][7], i8);
+            assignValueCheckAD(inputVals[cI][8], i9);
+        }
+
+        // Set up TF C API stuff
+        TF_Tensor* outputTensor_ = nullptr;
+        TF_Tensor* inputTensor_ = tf_utils::CreateTensor(TF_FLOAT,
+                                                        inputDims.data(),
+                                                        inputDims.size(),
+                                                        &inputVals,
+                                                        numCells * numInputs * sizeof(float));
+
+        // Arrays of tensors
+        TF_Tensor* inputTensors_[1] = {inputTensor_};
+        TF_Tensor* outputTensors_[1] = {outputTensor_};
+        // Arrays of operations
+        TF_Output inputs[1] = {input_ph_};
+        TF_Output outputs[1] = {output_};
+
+        TF_SessionRun(
+            sess_,
+            nullptr, // Run options.
+            inputs,
+            inputTensors_,
+            1, // Input tensor ops, input tensor values, number of inputs.
+            outputs,
+            outputTensors_,
+            1, // Output tensor ops, output tensor values, number of outputs.
+            nullptr,
+            0, // Target operations, number of targets.
+            nullptr, // Run metadata.
+            status_ // Output status.
+        );
+
+        const auto data = static_cast<float*>(TF_TensorData(outputTensors_[0]));
+        for (label i = 0; i < numCells; i++)
+        {
+            betaML_[i] = data[numOutputs * i] * stdArray[numInputs] + meanArray[numInputs]; // Funnel changes back into OF - row major order
+        }
+
+        tf_utils::DeleteTensor(inputTensor_);
+        tf_utils::DeleteTensor(outputTensor_);
+        TF_DeleteSessionOptions(options_);
+        TF_DeleteStatus(status_);
+        tf_utils::DeleteSession(sess_);
+
+        forAll(betaFieldInversionML_.internalField(), cI)
+        {
+            betaFieldInversionML_[cI] = betaML_[cI];
+        }
     }
-
-    // Set up TF C API stuff
-    TF_Tensor* outputTensor_ = nullptr;
-    TF_Tensor* inputTensor_ = tf_utils::CreateTensor(TF_FLOAT,
-                                                     inputDims.data(),
-                                                     inputDims.size(),
-                                                     &inputVals,
-                                                     numCells * numInputs * sizeof(float));
-
-    // Arrays of tensors
-    TF_Tensor* inputTensors_[1] = {inputTensor_};
-    TF_Tensor* outputTensors_[1] = {outputTensor_};
-    // Arrays of operations
-    TF_Output inputs[1] = {input_ph_};
-    TF_Output outputs[1] = {output_};
-
-    TF_SessionRun(
-        sess_,
-        nullptr, // Run options.
-        inputs,
-        inputTensors_,
-        1, // Input tensor ops, input tensor values, number of inputs.
-        outputs,
-        outputTensors_,
-        1, // Output tensor ops, output tensor values, number of outputs.
-        nullptr,
-        0, // Target operations, number of targets.
-        nullptr, // Run metadata.
-        status_ // Output status.
-    );
-
-    const auto data = static_cast<float*>(TF_TensorData(outputTensors_[0]));
-    for (label i = 0; i < numCells; i++)
+    if (typeForwardPropagation_ == "hardCoded")
     {
-        betaML_[i] = data[numOutputs * i] * stdArray[numInputs] + meanArray[numInputs]; // Funnel changes back into OF - row major order
-    }
+        // neural network forward propagation from scratch
+        // Read in neural network weights and biases
+        // input layer
+        RectangularMatrix<doubleScalar>w0 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/w_0")());
+        RectangularMatrix<doubleScalar>b0 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/b_0")());
+        
+        // hidden layers
+        RectangularMatrix<doubleScalar>w1 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/w_1")());
+        RectangularMatrix<doubleScalar>b1 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/b_1")());
+        RectangularMatrix<doubleScalar>w2 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/w_2")());
+        RectangularMatrix<doubleScalar>b2 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/b_2")());
+        RectangularMatrix<doubleScalar>w3 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/w_3")());
+        RectangularMatrix<doubleScalar>b3 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/b_3")());
+        RectangularMatrix<doubleScalar>w4 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/w_4")());
+        RectangularMatrix<doubleScalar>b4 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/b_4")());
+        RectangularMatrix<doubleScalar>w5 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/w_5")());
+        RectangularMatrix<doubleScalar>b5 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/b_5")());
+        RectangularMatrix<doubleScalar>w6 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/w_6")());
+        RectangularMatrix<doubleScalar>b6 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/b_6")());
+        RectangularMatrix<doubleScalar>w7 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/w_7")());
+        RectangularMatrix<doubleScalar>b7 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/b_7")());
+        RectangularMatrix<doubleScalar>w8 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/w_8")());
+        RectangularMatrix<doubleScalar>b8 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/b_8")());
+        RectangularMatrix<doubleScalar>w9 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/w_9")());
+        RectangularMatrix<doubleScalar>b9 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/b_9")());
+        RectangularMatrix<doubleScalar>w10 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/w_10")());
+        RectangularMatrix<doubleScalar>b10 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/b_10")());
+        
+        // output layer
+        RectangularMatrix<doubleScalar>w11 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/w_11")());
+        RectangularMatrix<doubleScalar>b11 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/b_11")());
+        
+        int NCells = this->mesh_.cells().size();
+        for (int i = 0; i < NCells; i++)
+        {
+            // input data
+            RectangularMatrix<doubleScalar>inputFeatures(1,numInputs_); 
+            inputFeatures(0,0) = (QCriterion_[i] - meanArray[0]) / (stdArray[0]);
+            inputFeatures(0,1) = (UGradMisalignment_[i] - meanArray[1]) / (stdArray[1]);
+            inputFeatures(0,2) = (pGradAlongStream_[i] - meanArray[2]) / (stdArray[2]);
+            inputFeatures(0,3) = (turbulenceIntensity_[i] - meanArray[3]) / (stdArray[3]);
+            inputFeatures(0,4) = (ReT_[i] - meanArray[4])/ (stdArray[4]);
+            inputFeatures(0,5) = (convectionTKE_[i] - meanArray[5]) / (stdArray[5]);
+            inputFeatures(0,6) = (curvature_[i] - meanArray[6]) / (stdArray[6]);
+            inputFeatures(0,7) = (pressureStress_[i] - meanArray[7]) / (stdArray[7]);
+            inputFeatures(0,8) = (tauRatio_[i] - meanArray[8]) / (stdArray[8]);
+            
+            RectangularMatrix<doubleScalar> xInput = inputFeatures; 
+            
+            // input layer
+            RectangularMatrix<doubleScalar>z1 = xInput * w0 + b0; 
+            for (int n= 0; n < numNeuronsPerLayer_; n++) {z1(0,n) = tanh(z1(0,n));}
 
-    tf_utils::DeleteTensor(inputTensor_);
-    tf_utils::DeleteTensor(outputTensor_);
-    TF_DeleteSessionOptions(options_);
-    TF_DeleteStatus(status_);
-    tf_utils::DeleteSession(sess_);
+            // 1st hidden layer
+            RectangularMatrix<doubleScalar>z2 = z1* w1 + b1; 
+            for (int n= 0; n < numNeuronsPerLayer_; n++) {z2(0,n) = tanh(z2(0,n));}
+            
+            // 2nd hidden layer
+            RectangularMatrix<doubleScalar>z3 = z2* w2 + b2; 
+            for (int n= 0; n < numNeuronsPerLayer_; n++) {z3(0,n) = tanh(z3(0,n));}
 
-    //betaML_ = MyFilter_(betaML_);
+            // 3rd hidden layer
+            RectangularMatrix<doubleScalar>z4 = z3 * w3 + b3; 
+            for (int n= 0; n < numNeuronsPerLayer_; n++) {z4(0,n) = tanh(z4(0,n));}
 
-    forAll(betaFieldInversionML_.internalField(), cI)
-    {
-        betaFieldInversionML_[cI] = betaML_[cI];
+            // 4th hidden layer
+            RectangularMatrix<doubleScalar>z5 = z4* w4 + b4; 
+            for (int n= 0; n < numNeuronsPerLayer_; n++) {z5(0,n) = tanh(z5(0,n));}
+            
+            // 5th hidden layer
+            RectangularMatrix<doubleScalar>z6 = z5* w5 + b5; 
+            for (int n= 0; n < numNeuronsPerLayer_; n++) {z6(0,n) = tanh(z6(0,n));}
+
+            // 6th hidden layer
+            RectangularMatrix<doubleScalar>z7 = z6* w6 + b6; 
+            for (int n= 0; n < numNeuronsPerLayer_; n++) {z7(0,n) = tanh(z7(0,n));}
+            
+            // 7th hidden layer
+            RectangularMatrix<doubleScalar>z8 = z7* w7 + b7; 
+            for (int n= 0; n < numNeuronsPerLayer_; n++) {z8(0,n) = tanh(z8(0,n));}
+
+            // 8th hidden layer
+            RectangularMatrix<doubleScalar>z9 = z8 * w8 + b8; 
+            for (int n= 0; n < numNeuronsPerLayer_; n++) {z9(0,n) = tanh(z9(0,n));}
+
+            // 9th hidden layer
+            RectangularMatrix<doubleScalar>z10 = z9* w9 + b9; 
+            for (int n= 0; n < numNeuronsPerLayer_; n++) {z10(0,n) = tanh(z10(0,n));}
+            
+            // 10th hidden layer
+            RectangularMatrix<doubleScalar>z11 = z10* w10 + b10; 
+            for (int n= 0; n < numNeuronsPerLayer_; n++) {z11(0,n) = tanh(z11(0,n));}
+
+            // output layer
+            RectangularMatrix<doubleScalar>z12 = z11 * w11.T() + b11; 
+            
+            // normalise beta 
+            betaFieldInversionML_[i] = z12(0,0) * stdArray[9] + meanArray[9];     
+                        
+        }
     }
 
     // *********** TURBULENCE MODEL FUNCTIONS ***********

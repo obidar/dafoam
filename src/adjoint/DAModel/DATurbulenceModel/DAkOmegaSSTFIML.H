@@ -74,6 +74,15 @@ protected:
     dimensionedScalar c1_;
 
     Switch F3_;
+
+    // neural network parameters
+    IOdictionary neuralNetworkParams_;
+    scalar numHiddenLayers_;
+    scalar numInputs_;
+    scalar numOutputs_;
+    scalar numNeuronsPerLayer_;
+    word typeForwardPropagation_; 
+
     //@}
 
     // Tensorflow graph operations - protected members of this class - top three not used in constructor definition since they don't have default values
