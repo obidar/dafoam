@@ -406,8 +406,8 @@ void DAObjFuncFieldInversion::calcObjFunc(
         literature.)
         */
 
-        stateName_ = "surfaceFriction_";
-        stateRefName_ = data_; 
+        stateName_ = "surfaceFriction";
+        stateRefName_ = "surfaceFrictionData"; 
 
         wordList patchNames_; 
         objFuncDict_.readEntry<wordList>("patchNames", patchNames_);
