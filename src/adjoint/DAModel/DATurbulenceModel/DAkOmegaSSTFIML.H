@@ -90,6 +90,32 @@ protected:
     TF_Output input_ph_;
     TF_Output output_;
 
+     // declare the weights and biases here
+    RectangularMatrix<scalar>w0;
+    RectangularMatrix<scalar>b0;
+    RectangularMatrix<scalar>w1;
+    RectangularMatrix<scalar>b1;
+    RectangularMatrix<scalar>w2;
+    RectangularMatrix<scalar>b2;
+    RectangularMatrix<scalar>w3;
+    RectangularMatrix<scalar>b3;
+    RectangularMatrix<scalar>w4;
+    RectangularMatrix<scalar>b4;
+    RectangularMatrix<scalar>w5;
+    RectangularMatrix<scalar>b5;
+    RectangularMatrix<scalar>w6;
+    RectangularMatrix<scalar>b6;
+    RectangularMatrix<scalar>w7;
+    RectangularMatrix<scalar>b7;
+    RectangularMatrix<scalar>w8;
+    RectangularMatrix<scalar>b8;
+    RectangularMatrix<scalar>w9;
+    RectangularMatrix<scalar>b9;
+    RectangularMatrix<scalar>w10;
+    RectangularMatrix<scalar>b10;
+    RectangularMatrix<scalar>w11;
+    RectangularMatrix<scalar>b11;
+
     /// \name SST functions
     //@{
     tmp<volScalarField> F1(const volScalarField& CDkOmega) const;

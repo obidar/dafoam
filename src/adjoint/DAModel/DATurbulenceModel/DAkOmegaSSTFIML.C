@@ -373,6 +373,35 @@ DAkOmegaSSTFIML::DAkOmegaSSTFIML(
     graph_ = tf_utils::LoadGraph("./kOmegaSSTFIML.pb");
     input_ph_ = {TF_GraphOperationByName(graph_, "input_placeholder"), 0};
     output_ = {TF_GraphOperationByName(graph_, "output_value/BiasAdd"), 0};
+
+    // read in weights and biases here
+    // input layer
+    w0 = RectangularMatrix<scalar>(IFstream("constant/weightsAndBiases/w_0")());
+    b0 = RectangularMatrix<scalar>(IFstream("constant/weightsAndBiases/b_0")());
+    // hidden layers
+    w1 = (IFstream("constant/weightsAndBiases/w_1")());
+    b1 = (IFstream("constant/weightsAndBiases/b_1")());
+    w2 = (IFstream("constant/weightsAndBiases/w_2")());
+    b2 = (IFstream("constant/weightsAndBiases/b_2")());
+    w3 = (IFstream("constant/weightsAndBiases/w_3")());
+    b3 = (IFstream("constant/weightsAndBiases/b_3")());
+    w4 = (IFstream("constant/weightsAndBiases/w_4")());
+    b4 = (IFstream("constant/weightsAndBiases/b_4")());
+    w5 = (IFstream("constant/weightsAndBiases/w_5")());
+    b5 = (IFstream("constant/weightsAndBiases/b_5")());
+    w6 = (IFstream("constant/weightsAndBiases/w_6")());
+    b6 = (IFstream("constant/weightsAndBiases/b_6")());
+    w7 = (IFstream("constant/weightsAndBiases/w_7")());
+    b7 = (IFstream("constant/weightsAndBiases/b_7")());
+    w8 = (IFstream("constant/weightsAndBiases/w_8")());
+    b8 = (IFstream("constant/weightsAndBiases/b_8")());
+    w9 = (IFstream("constant/weightsAndBiases/w_9")());
+    b9 = (IFstream("constant/weightsAndBiases/b_9")());
+    w10 = (IFstream("constant/weightsAndBiases/w_10")());
+    b10 = (IFstream("constant/weightsAndBiases/b_10")());
+    // output layer
+    w11 = (IFstream("constant/weightsAndBiases/w_11")());
+    b11 = (IFstream("constant/weightsAndBiases/b_11")());
 }
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
@@ -896,7 +925,7 @@ void DAkOmegaSSTFIML::calcResiduals(const dictionary& options)
     }
 
     // Read scaling parameters (do we need to scale?)
-    RectangularMatrix<doubleScalar> meanStdVals(IFstream("means")());
+    RectangularMatrix<scalar> meanStdVals(IFstream("means")());
 
     label numInputs = 9;
     label numOutputs = 1;
@@ -1061,104 +1090,71 @@ void DAkOmegaSSTFIML::calcResiduals(const dictionary& options)
     }
     if (typeForwardPropagation_ == "hardCoded")
     {
-        // neural network forward propagation from scratch
-        // Read in neural network weights and biases
-        // input layer
-        RectangularMatrix<doubleScalar>w0 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/w_0")());
-        RectangularMatrix<doubleScalar>b0 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/b_0")());
-        
-        // hidden layers
-        RectangularMatrix<doubleScalar>w1 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/w_1")());
-        RectangularMatrix<doubleScalar>b1 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/b_1")());
-        RectangularMatrix<doubleScalar>w2 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/w_2")());
-        RectangularMatrix<doubleScalar>b2 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/b_2")());
-        RectangularMatrix<doubleScalar>w3 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/w_3")());
-        RectangularMatrix<doubleScalar>b3 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/b_3")());
-        RectangularMatrix<doubleScalar>w4 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/w_4")());
-        RectangularMatrix<doubleScalar>b4 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/b_4")());
-        RectangularMatrix<doubleScalar>w5 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/w_5")());
-        RectangularMatrix<doubleScalar>b5 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/b_5")());
-        RectangularMatrix<doubleScalar>w6 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/w_6")());
-        RectangularMatrix<doubleScalar>b6 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/b_6")());
-        RectangularMatrix<doubleScalar>w7 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/w_7")());
-        RectangularMatrix<doubleScalar>b7 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/b_7")());
-        RectangularMatrix<doubleScalar>w8 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/w_8")());
-        RectangularMatrix<doubleScalar>b8 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/b_8")());
-        RectangularMatrix<doubleScalar>w9 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/w_9")());
-        RectangularMatrix<doubleScalar>b9 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/b_9")());
-        RectangularMatrix<doubleScalar>w10 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/w_10")());
-        RectangularMatrix<doubleScalar>b10 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/b_10")());
-        
-        // output layer
-        RectangularMatrix<doubleScalar>w11 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/w_11")());
-        RectangularMatrix<doubleScalar>b11 = RectangularMatrix<doubleScalar>(IFstream("constant/weightsAndBiases/b_11")());
-        
-        int NCells = this->mesh_.cells().size();
-        for (int i = 0; i < NCells; i++)
+        forAll(betaFieldInversionML_.internalField(), cI)
         {
             // input data
-            RectangularMatrix<doubleScalar>inputFeatures(1,numInputs_); 
-            inputFeatures(0,0) = (QCriterion_[i] - meanArray[0]) / (stdArray[0]);
-            inputFeatures(0,1) = (UGradMisalignment_[i] - meanArray[1]) / (stdArray[1]);
-            inputFeatures(0,2) = (pGradAlongStream_[i] - meanArray[2]) / (stdArray[2]);
-            inputFeatures(0,3) = (turbulenceIntensity_[i] - meanArray[3]) / (stdArray[3]);
-            inputFeatures(0,4) = (ReT_[i] - meanArray[4])/ (stdArray[4]);
-            inputFeatures(0,5) = (convectionTKE_[i] - meanArray[5]) / (stdArray[5]);
-            inputFeatures(0,6) = (curvature_[i] - meanArray[6]) / (stdArray[6]);
-            inputFeatures(0,7) = (pressureStress_[i] - meanArray[7]) / (stdArray[7]);
-            inputFeatures(0,8) = (tauRatio_[i] - meanArray[8]) / (stdArray[8]);
+            RectangularMatrix<scalar>inputFeatures(1,numInputs_); 
+            inputFeatures(0,0) = (QCriterion_[cI] - meanArray[0]) / (stdArray[0]);
+            inputFeatures(0,1) = (UGradMisalignment_[cI] - meanArray[1]) / (stdArray[1]);
+            inputFeatures(0,2) = (pGradAlongStream_[cI] - meanArray[2]) / (stdArray[2]);
+            inputFeatures(0,3) = (turbulenceIntensity_[cI] - meanArray[3]) / (stdArray[3]);
+            inputFeatures(0,4) = (ReT_[cI] - meanArray[4])/ (stdArray[4]);
+            inputFeatures(0,5) = (convectionTKE_[cI] - meanArray[5]) / (stdArray[5]);
+            inputFeatures(0,6) = (curvature_[cI] - meanArray[6]) / (stdArray[6]);
+            inputFeatures(0,7) = (pressureStress_[cI] - meanArray[7]) / (stdArray[7]);
+            inputFeatures(0,8) = (tauRatio_[cI] - meanArray[8]) / (stdArray[8]);
             
-            RectangularMatrix<doubleScalar> xInput = inputFeatures; 
+            RectangularMatrix<scalar> xInput = inputFeatures; 
             
             // input layer
-            RectangularMatrix<doubleScalar>z1 = xInput * w0 + b0; 
+            RectangularMatrix<scalar>z1 = xInput * w0 + b0; 
             for (int n= 0; n < numNeuronsPerLayer_; n++) {z1(0,n) = tanh(z1(0,n));}
 
             // 1st hidden layer
-            RectangularMatrix<doubleScalar>z2 = z1* w1 + b1; 
+            RectangularMatrix<scalar>z2 = z1* w1 + b1; 
             for (int n= 0; n < numNeuronsPerLayer_; n++) {z2(0,n) = tanh(z2(0,n));}
             
             // 2nd hidden layer
-            RectangularMatrix<doubleScalar>z3 = z2* w2 + b2; 
+            RectangularMatrix<scalar>z3 = z2* w2 + b2; 
             for (int n= 0; n < numNeuronsPerLayer_; n++) {z3(0,n) = tanh(z3(0,n));}
 
             // 3rd hidden layer
-            RectangularMatrix<doubleScalar>z4 = z3 * w3 + b3; 
+            RectangularMatrix<scalar>z4 = z3 * w3 + b3; 
             for (int n= 0; n < numNeuronsPerLayer_; n++) {z4(0,n) = tanh(z4(0,n));}
 
             // 4th hidden layer
-            RectangularMatrix<doubleScalar>z5 = z4* w4 + b4; 
+            RectangularMatrix<scalar>z5 = z4* w4 + b4; 
             for (int n= 0; n < numNeuronsPerLayer_; n++) {z5(0,n) = tanh(z5(0,n));}
             
             // 5th hidden layer
-            RectangularMatrix<doubleScalar>z6 = z5* w5 + b5; 
+            RectangularMatrix<scalar>z6 = z5* w5 + b5; 
             for (int n= 0; n < numNeuronsPerLayer_; n++) {z6(0,n) = tanh(z6(0,n));}
 
             // 6th hidden layer
-            RectangularMatrix<doubleScalar>z7 = z6* w6 + b6; 
+            RectangularMatrix<scalar>z7 = z6* w6 + b6; 
             for (int n= 0; n < numNeuronsPerLayer_; n++) {z7(0,n) = tanh(z7(0,n));}
             
             // 7th hidden layer
-            RectangularMatrix<doubleScalar>z8 = z7* w7 + b7; 
+            RectangularMatrix<scalar>z8 = z7* w7 + b7; 
             for (int n= 0; n < numNeuronsPerLayer_; n++) {z8(0,n) = tanh(z8(0,n));}
 
             // 8th hidden layer
-            RectangularMatrix<doubleScalar>z9 = z8 * w8 + b8; 
+            RectangularMatrix<scalar>z9 = z8 * w8 + b8; 
             for (int n= 0; n < numNeuronsPerLayer_; n++) {z9(0,n) = tanh(z9(0,n));}
 
             // 9th hidden layer
-            RectangularMatrix<doubleScalar>z10 = z9* w9 + b9; 
+            RectangularMatrix<scalar>z10 = z9* w9 + b9; 
             for (int n= 0; n < numNeuronsPerLayer_; n++) {z10(0,n) = tanh(z10(0,n));}
             
             // 10th hidden layer
-            RectangularMatrix<doubleScalar>z11 = z10* w10 + b10; 
+            RectangularMatrix<scalar>z11 = z10* w10 + b10; 
             for (int n= 0; n < numNeuronsPerLayer_; n++) {z11(0,n) = tanh(z11(0,n));}
 
             // output layer
-            RectangularMatrix<doubleScalar>z12 = z11 * w11.T() + b11; 
+            RectangularMatrix<scalar>z12 = z11 * w11.T() + b11; 
             
             // normalise beta 
-            betaFieldInversionML_[i] = z12(0,0) * stdArray[9] + meanArray[9];     
+            betaFieldInversionML_[cI] = z12(0,0) * stdArray[9] + meanArray[9];     
                         
         }
     }
