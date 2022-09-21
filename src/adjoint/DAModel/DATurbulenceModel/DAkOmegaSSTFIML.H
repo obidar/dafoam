@@ -77,10 +77,10 @@ protected:
 
     // neural network parameters
     IOdictionary neuralNetworkParams_;
-    scalar numHiddenLayers_;
-    scalar numInputs_;
-    scalar numOutputs_;
-    scalar numNeuronsPerLayer_;
+    label numHiddenLayers_;
+    label numInputs_;
+    label numOutputs_;
+    label numNeuronsPerLayer_;
     word typeForwardPropagation_; 
 
     //@}

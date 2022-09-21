@@ -113,13 +113,13 @@ DAkOmegaSSTFIML::DAkOmegaSSTFIML(
             IOobject::MUST_READ,
             IOobject::NO_WRITE)),
 
-        numHiddenLayers_(readScalar(neuralNetworkParams_.lookup("numHiddenLayers"))),
+        numHiddenLayers_(readLabel(neuralNetworkParams_.lookup("numHiddenLayers"))),
 
-        numInputs_(readScalar(neuralNetworkParams_.lookup("numInputs"))),
+        numInputs_(readLabel(neuralNetworkParams_.lookup("numInputs"))),
 
-        numOutputs_(readScalar(neuralNetworkParams_.lookup("numOutputs"))),
+        numOutputs_(readLabel(neuralNetworkParams_.lookup("numOutputs"))),
 
-        numNeuronsPerLayer_(readScalar(neuralNetworkParams_.lookup("numNeuronsPerLayer"))),
+        numNeuronsPerLayer_(readLabel(neuralNetworkParams_.lookup("numNeuronsPerLayer"))),
 
         typeForwardPropagation_(word(neuralNetworkParams_.lookup("typeForwardPropagation"))),
 
