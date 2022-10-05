@@ -4,15 +4,16 @@
     Version : v3
 
     Description:
-        Child class for dRdACTD
+        Child class for moment
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef DAPartDerivdRdACTD_H
-#define DAPartDerivdRdACTD_H
+#ifndef DAObjFuncPower_H
+#define DAObjFuncPower_H
 
-#include "DAPartDeriv.H"
+#include "DAObjFunc.H"
 #include "addToRunTimeSelectionTable.H"
+#include "IOMRFZoneListDF.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -20,50 +21,50 @@ namespace Foam
 {
 
 /*---------------------------------------------------------------------------*\
-      Class DAPartDerivdRdACTD Declaration
+      Class DAObjFuncPower Declaration
 \*---------------------------------------------------------------------------*/
 
-class DAPartDerivdRdACTD
-    : public DAPartDeriv
+class DAObjFuncPower
+    : public DAObjFunc
 {
 
 protected:
+    /// the direction of the moment
+    vector momentDir_;
 
-    /// number of design variables for actuator disk
-    label nActDVs_ = 10;
+    /// the center of rotation for moment
+    vector momentCenter_;
+
+    /// DATurbulenceModel object
+    const DATurbulenceModel& daTurb_;
 
 public:
-    TypeName("dRdACTD");
+    TypeName("power");
     // Constructors
 
     //- Construct from components
-    DAPartDerivdRdACTD(
-        const word modelType,
+    DAObjFuncPower(
         const fvMesh& mesh,
         const DAOption& daOption,
         const DAModel& daModel,
         const DAIndex& daIndex,
-        const DAJacCon& daJacCon,
-        const DAResidual& daResidual);
+        const DAResidual& daResidual,
+        const word objFuncName,
+        const word objFuncPart,
+        const dictionary& objFuncDict);
 
     //- Destructor
-    virtual ~DAPartDerivdRdACTD()
+    virtual ~DAObjFuncPower()
     {
     }
 
-    // Member functions
-
-    /// initialize partial derivative matrix
-    virtual void initializePartDerivMat(
-        const dictionary& options,
-        Mat jacMat);
-
-    /// compute the partial derivative matrix
-    virtual void calcPartDerivMat(
-        const dictionary& options,
-        const Vec xvVec,
-        const Vec wVec,
-        Mat jacMat);
+    /// calculate the value of objective function
+    virtual void calcObjFunc(
+        const labelList& objFuncFaceSources,
+        const labelList& objFuncCellSources,
+        scalarList& objFuncFaceValues,
+        scalarList& objFuncCellValues,
+        scalar& objFuncValue);
 };
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

@@ -146,7 +146,7 @@ class Top(Multipoint):
         self.add_subsystem("mesh", dafoam_builder.get_mesh_coordinate_subsystem())
 
         # add the geometry component, we dont need a builder because we do it here.
-        self.add_subsystem("geometry", OM_DVGEOCOMP(ffd_file="FFD/wingFFD.xyz"))
+        self.add_subsystem("geometry", OM_DVGEOCOMP(file="FFD/wingFFD.xyz", type="ffd"))
 
         self.mphys_add_scenario("cruise", ScenarioAerodynamic(aero_builder=dafoam_builder))
 
@@ -196,6 +196,7 @@ class Top(Multipoint):
             actPOD = float(val[6])
             actExpM = float(val[7])
             actExpN = float(val[8])
+            T = float(val[9])
             DASolver.setOption(
                 "fvSource",
                 {
@@ -207,6 +208,7 @@ class Top(Multipoint):
                         "POD": actPOD,
                         "expM": actExpM,
                         "expN": actExpN,
+                        "targetThrust": T
                     },
                 },
             )
@@ -240,7 +242,7 @@ class Top(Multipoint):
         self.dvs.add_output("twist", val=np.array([pitch0] * nRefAxPts))
         self.dvs.add_output("shape", val=np.array([0] * nShapes))
         self.dvs.add_output("uin", val=np.array([U0]))
-        self.dvs.add_output("actuator", val=np.array([-1, 0.0, 5, 0.5, 5.0, 1.0, 1.0, 1.0, 0.5]))
+        self.dvs.add_output("actuator", val=np.array([-1, 0.0, 5, 0.5, 5.0, 1.0, 1.0, 1.0, 0.5, 100.0]))
         self.connect("twist", "geometry.twist")
         self.connect("shape", "geometry.shape")
         self.connect("uin", "cruise.uin")
@@ -250,7 +252,7 @@ class Top(Multipoint):
         self.add_design_var("twist", lower=-10.0, upper=10.0, scaler=1.0)
         self.add_design_var("shape", lower=-1.0, upper=1.0, scaler=1.0)
         self.add_design_var("uin", lower=9.0, upper=11.0, scaler=1.0)
-        self.add_design_var("actuator", lower=-10, upper=10.0, scaler=1.0)
+        self.add_design_var("actuator", lower=-1000.0, upper=1000.0, scaler=1.0)
 
         # add constraints and the objective
         self.add_objective("cruise.aero_post.CD", scaler=1.0)
@@ -284,7 +286,7 @@ prob.recording_options["record_constraints"] = True
 prob.setup(mode="rev")
 om.n2(prob, show_browser=False, outfile="mphys_aerostruct.html")
 
-optFuncs = OptFuncs(daOptions, prob)
+optFuncs = OptFuncs([daOptions], prob)
 
 prob.run_driver()
 

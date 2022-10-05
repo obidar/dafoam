@@ -201,7 +201,7 @@ class Top(Multipoint):
         dvs = self.add_subsystem("dvs", om.IndepVarComp(), promotes=["*"])
 
         # add the geometry component, we dont need a builder because we do it here.
-        self.add_subsystem("geometry", OM_DVGEOCOMP(ffd_file="./FFD/parentFFD.xyz"))
+        self.add_subsystem("geometry", OM_DVGEOCOMP(file="./FFD/parentFFD.xyz", type="ffd"))
 
         # add the coupling solvers
         nonlinear_solver = om.NonlinearBlockGS(maxiter=25, iprint=2, use_aitken=True, rtol=1e-8, atol=1e-8)
@@ -241,7 +241,7 @@ class Top(Multipoint):
         self.geometry.nom_setConstraintSurface(tri_points)
 
         # geometry setup
-        self.geometry.nom_addChild(ffd_file="./FFD/wingFFD.xyz")
+        self.geometry.nom_addChild("./FFD/wingFFD.xyz")
         # Create reference axis
         nRefAxPts = self.geometry.nom_addRefAxis(name="wingAxis", xFraction=0.25, alignIndex="k", childIdx=0)
 
@@ -267,6 +267,7 @@ class Top(Multipoint):
             actPOD = float(val[6])
             actExpM = float(val[7])
             actExpN = float(val[8])
+            T = float(val[9])
             DASolver.setOption(
                 "fvSource",
                 {
@@ -278,6 +279,7 @@ class Top(Multipoint):
                         "POD": actPOD,
                         "expM": actExpM,
                         "expN": actExpN,
+                        "targetThrust": T,
                     },
                 },
             )
@@ -297,11 +299,11 @@ class Top(Multipoint):
         # add dvs to ivc and connect
         self.dvs.add_output("twist", val=np.array([aoa0] * (nRefAxPts - 1)))
         self.dvs.add_output("shape", val=np.array([0] * nShapes))
-        self.dvs.add_output("actuator", val=np.array([7.0, 0.0, 14.0, 0.1, 1.0, 1.0, 0.0, 1.0, 0.5]))
+        self.dvs.add_output("actuator", val=np.array([7.0, 0.0, 14.0, 0.1, 1.0, 1.0, 0.0, 1.0, 0.5, 2000.0]))
         self.connect("twist", "geometry.twist")
         self.connect("shape", "geometry.shape")
-        self.connect("actuator", "cruise.dv_actuator_disk1", src_indices=[3,4,5,6,7,8])
-        self.connect("actuator", "cruise.x_prop0_disk1", src_indices=[0,1,2])
+        self.connect("actuator", "cruise.dv_actuator_disk1", src_indices=[3, 4, 5, 6, 7, 8, 9])
+        self.connect("actuator", "cruise.x_prop0_disk1", src_indices=[0, 1, 2])
 
         # define the design variables
         self.add_design_var("twist", lower=-10.0, upper=10.0, scaler=1.0)
