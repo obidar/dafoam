@@ -1108,47 +1108,47 @@ void DAkOmegaSSTFIML::calcResiduals(const dictionary& options)
             
             // input layer
             RectangularMatrix<scalar>z1 = xInput * w0 + b0; 
-            for (int n= 0; n < numNeuronsPerLayer_; n++) {z1(0,n) = tanh(z1(0,n));}
+            for (label n = 0; n < numNeuronsPerLayer_; n++) {z1(0,n) = tanh(z1(0,n));}
 
             // 1st hidden layer
             RectangularMatrix<scalar>z2 = z1* w1 + b1; 
-            for (int n= 0; n < numNeuronsPerLayer_; n++) {z2(0,n) = tanh(z2(0,n));}
+            for (label n = 0; n < numNeuronsPerLayer_; n++) {z2(0,n) = tanh(z2(0,n));}
             
             // 2nd hidden layer
             RectangularMatrix<scalar>z3 = z2* w2 + b2; 
-            for (int n= 0; n < numNeuronsPerLayer_; n++) {z3(0,n) = tanh(z3(0,n));}
+            for (label n = 0; n < numNeuronsPerLayer_; n++) {z3(0,n) = tanh(z3(0,n));}
 
             // 3rd hidden layer
             RectangularMatrix<scalar>z4 = z3 * w3 + b3; 
-            for (int n= 0; n < numNeuronsPerLayer_; n++) {z4(0,n) = tanh(z4(0,n));}
+            for (label n = 0; n < numNeuronsPerLayer_; n++) {z4(0,n) = tanh(z4(0,n));}
 
             // 4th hidden layer
             RectangularMatrix<scalar>z5 = z4* w4 + b4; 
-            for (int n= 0; n < numNeuronsPerLayer_; n++) {z5(0,n) = tanh(z5(0,n));}
+            for (label n = 0; n < numNeuronsPerLayer_; n++) {z5(0,n) = tanh(z5(0,n));}
             
             // 5th hidden layer
             RectangularMatrix<scalar>z6 = z5* w5 + b5; 
-            for (int n= 0; n < numNeuronsPerLayer_; n++) {z6(0,n) = tanh(z6(0,n));}
+            for (label n = 0; n < numNeuronsPerLayer_; n++) {z6(0,n) = tanh(z6(0,n));}
 
             // 6th hidden layer
             RectangularMatrix<scalar>z7 = z6* w6 + b6; 
-            for (int n= 0; n < numNeuronsPerLayer_; n++) {z7(0,n) = tanh(z7(0,n));}
+            for (label n = 0; n < numNeuronsPerLayer_; n++) {z7(0,n) = tanh(z7(0,n));}
             
             // 7th hidden layer
             RectangularMatrix<scalar>z8 = z7* w7 + b7; 
-            for (int n= 0; n < numNeuronsPerLayer_; n++) {z8(0,n) = tanh(z8(0,n));}
+            for (label n = 0; n < numNeuronsPerLayer_; n++) {z8(0,n) = tanh(z8(0,n));}
 
             // 8th hidden layer
             RectangularMatrix<scalar>z9 = z8 * w8 + b8; 
-            for (int n= 0; n < numNeuronsPerLayer_; n++) {z9(0,n) = tanh(z9(0,n));}
+            for (label n = 0; n < numNeuronsPerLayer_; n++) {z9(0,n) = tanh(z9(0,n));}
 
             // 9th hidden layer
             RectangularMatrix<scalar>z10 = z9* w9 + b9; 
-            for (int n= 0; n < numNeuronsPerLayer_; n++) {z10(0,n) = tanh(z10(0,n));}
+            for (label n = 0; n < numNeuronsPerLayer_; n++) {z10(0,n) = tanh(z10(0,n));}
             
             // 10th hidden layer
             RectangularMatrix<scalar>z11 = z10* w10 + b10; 
-            for (int n= 0; n < numNeuronsPerLayer_; n++) {z11(0,n) = tanh(z11(0,n));}
+            for (label n = 0; n < numNeuronsPerLayer_; n++) {z11(0,n) = tanh(z11(0,n));}
 
             // output layer
             RectangularMatrix<scalar>z12 = z11 * w11.T() + b11; 
