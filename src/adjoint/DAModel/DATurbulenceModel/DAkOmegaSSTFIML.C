@@ -1104,20 +1104,20 @@ void DAkOmegaSSTFIML::calcResiduals(const dictionary& options)
         RectangularMatrix<scalar>z9(numNeuronsPerLayer_, numNeuronsPerLayer_); 
         RectangularMatrix<scalar>z10(numNeuronsPerLayer_, numNeuronsPerLayer_); 
         RectangularMatrix<scalar>z11(numNeuronsPerLayer_, numNeuronsPerLayer_); 
-        RectangularMatrix<scalar>z12(numNeuronsPerLayer_, 1); 
+        RectangularMatrix<scalar>z12(numNeuronsPerLayer_, numOutputs_); 
 
         forAll(betaFieldInversionML_.internalField(), cI)
         {
             // input data
-            inputFeatures(0,0) = (QCriterion_[i] - meanArray[0]) / (stdArray[0]);
-            inputFeatures(0,1) = (UGradMisalignment_[i] - meanArray[1]) / (stdArray[1]);
-            inputFeatures(0,2) = (pGradAlongStream_[i] - meanArray[2]) / (stdArray[2]);
-            inputFeatures(0,3) = (turbulenceIntensity_[i] - meanArray[3]) / (stdArray[3]);
-            inputFeatures(0,4) = (ReT_[i] - meanArray[4])/ (stdArray[4]);
-            inputFeatures(0,5) = (convectionTKE_[i] - meanArray[5]) / (stdArray[5]);
-            inputFeatures(0,6) = (curvature_[i] - meanArray[6]) / (stdArray[6]);
-            inputFeatures(0,7) = (pressureStress_[i] - meanArray[7]) / (stdArray[7]);
-            inputFeatures(0,8) = (tauRatio_[i] - meanArray[8]) / (stdArray[8]);
+            inputFeatures(0,0) = (QCriterion_[cI] - meanArray[0]) / (stdArray[0]);
+            inputFeatures(0,1) = (UGradMisalignment_[cI] - meanArray[1]) / (stdArray[1]);
+            inputFeatures(0,2) = (pGradAlongStream_[cI] - meanArray[2]) / (stdArray[2]);
+            inputFeatures(0,3) = (turbulenceIntensity_[cI] - meanArray[3]) / (stdArray[3]);
+            inputFeatures(0,4) = (ReT_[cI] - meanArray[4])/ (stdArray[4]);
+            inputFeatures(0,5) = (convectionTKE_[cI] - meanArray[5]) / (stdArray[5]);
+            inputFeatures(0,6) = (curvature_[cI] - meanArray[6]) / (stdArray[6]);
+            inputFeatures(0,7) = (pressureStress_[cI] - meanArray[7]) / (stdArray[7]);
+            inputFeatures(0,8) = (tauRatio_[cI] - meanArray[8]) / (stdArray[8]);
             
             xInput = inputFeatures; 
             
