@@ -1169,7 +1169,7 @@ void DAkOmegaSSTFIML::calcResiduals(const dictionary& options)
             z12 = z11 * w11.T() + b11; 
             
             // normalise beta
-            betaFieldInversionML_[i] = z12(0,0) * stdArray[9] + meanArray[9];    
+            betaFieldInversionML_[cI] = z12(0,0) * stdArray[9] + meanArray[9];    
                         
         }
     }
