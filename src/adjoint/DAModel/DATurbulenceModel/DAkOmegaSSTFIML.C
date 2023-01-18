@@ -1090,71 +1090,86 @@ void DAkOmegaSSTFIML::calcResiduals(const dictionary& options)
     }
     if (typeForwardPropagation_ == "hardCoded")
     {
+        // declare matrices for the neural network forward propagation 
+        RectangularMatrix<scalar>inputFeatures(1,numInputs_); 
+        RectangularMatrix<scalar>xInput(1,numInputs_);
+        RectangularMatrix<scalar>z1(numInputs_, numNeuronsPerLayer_);
+        RectangularMatrix<scalar>z2(numNeuronsPerLayer_, numNeuronsPerLayer_); 
+        RectangularMatrix<scalar>z3(numNeuronsPerLayer_, numNeuronsPerLayer_); 
+        RectangularMatrix<scalar>z4(numNeuronsPerLayer_, numNeuronsPerLayer_); 
+        RectangularMatrix<scalar>z5(numNeuronsPerLayer_, numNeuronsPerLayer_); 
+        RectangularMatrix<scalar>z6(numNeuronsPerLayer_, numNeuronsPerLayer_); 
+        RectangularMatrix<scalar>z7(numNeuronsPerLayer_, numNeuronsPerLayer_); 
+        RectangularMatrix<scalar>z8(numNeuronsPerLayer_, numNeuronsPerLayer_); 
+        RectangularMatrix<scalar>z9(numNeuronsPerLayer_, numNeuronsPerLayer_); 
+        RectangularMatrix<scalar>z10(numNeuronsPerLayer_, numNeuronsPerLayer_); 
+        RectangularMatrix<scalar>z11(numNeuronsPerLayer_, numNeuronsPerLayer_); 
+        RectangularMatrix<scalar>z12(numNeuronsPerLayer_, 1); 
+
         forAll(betaFieldInversionML_.internalField(), cI)
         {
             // input data
-            RectangularMatrix<scalar>inputFeatures(1,numInputs_); 
-            inputFeatures(0,0) = (QCriterion_[cI] - meanArray[0]) / (stdArray[0]);
-            inputFeatures(0,1) = (UGradMisalignment_[cI] - meanArray[1]) / (stdArray[1]);
-            inputFeatures(0,2) = (pGradAlongStream_[cI] - meanArray[2]) / (stdArray[2]);
-            inputFeatures(0,3) = (turbulenceIntensity_[cI] - meanArray[3]) / (stdArray[3]);
-            inputFeatures(0,4) = (ReT_[cI] - meanArray[4])/ (stdArray[4]);
-            inputFeatures(0,5) = (convectionTKE_[cI] - meanArray[5]) / (stdArray[5]);
-            inputFeatures(0,6) = (curvature_[cI] - meanArray[6]) / (stdArray[6]);
-            inputFeatures(0,7) = (pressureStress_[cI] - meanArray[7]) / (stdArray[7]);
-            inputFeatures(0,8) = (tauRatio_[cI] - meanArray[8]) / (stdArray[8]);
+            inputFeatures(0,0) = (QCriterion_[i] - meanArray[0]) / (stdArray[0]);
+            inputFeatures(0,1) = (UGradMisalignment_[i] - meanArray[1]) / (stdArray[1]);
+            inputFeatures(0,2) = (pGradAlongStream_[i] - meanArray[2]) / (stdArray[2]);
+            inputFeatures(0,3) = (turbulenceIntensity_[i] - meanArray[3]) / (stdArray[3]);
+            inputFeatures(0,4) = (ReT_[i] - meanArray[4])/ (stdArray[4]);
+            inputFeatures(0,5) = (convectionTKE_[i] - meanArray[5]) / (stdArray[5]);
+            inputFeatures(0,6) = (curvature_[i] - meanArray[6]) / (stdArray[6]);
+            inputFeatures(0,7) = (pressureStress_[i] - meanArray[7]) / (stdArray[7]);
+            inputFeatures(0,8) = (tauRatio_[i] - meanArray[8]) / (stdArray[8]);
             
-            RectangularMatrix<scalar> xInput = inputFeatures; 
+            xInput = inputFeatures; 
             
             // input layer
-            RectangularMatrix<scalar>z1 = xInput * w0 + b0; 
-            for (label n = 0; n < numNeuronsPerLayer_; n++) {z1(0,n) = tanh(z1(0,n));}
+            z1 = xInput * w0 + b0; 
+            for (label n= 0; n < numNeuronsPerLayer_; n++) {z1(0,n) = tanh(z1(0,n));}
 
             // 1st hidden layer
-            RectangularMatrix<scalar>z2 = z1* w1 + b1; 
-            for (label n = 0; n < numNeuronsPerLayer_; n++) {z2(0,n) = tanh(z2(0,n));}
+            z2 = z1* w1 + b1; 
+            for (label n= 0; n < numNeuronsPerLayer_; n++) {z2(0,n) = tanh(z2(0,n));}
             
             // 2nd hidden layer
-            RectangularMatrix<scalar>z3 = z2* w2 + b2; 
-            for (label n = 0; n < numNeuronsPerLayer_; n++) {z3(0,n) = tanh(z3(0,n));}
+            z3 = z2* w2 + b2; 
+            for (label n= 0; n < numNeuronsPerLayer_; n++) {z3(0,n) = tanh(z3(0,n));}
 
             // 3rd hidden layer
-            RectangularMatrix<scalar>z4 = z3 * w3 + b3; 
-            for (label n = 0; n < numNeuronsPerLayer_; n++) {z4(0,n) = tanh(z4(0,n));}
+            z4 = z3 * w3 + b3; 
+            for (label n= 0; n < numNeuronsPerLayer_; n++) {z4(0,n) = tanh(z4(0,n));}
 
             // 4th hidden layer
-            RectangularMatrix<scalar>z5 = z4* w4 + b4; 
-            for (label n = 0; n < numNeuronsPerLayer_; n++) {z5(0,n) = tanh(z5(0,n));}
+            z5 = z4* w4 + b4; 
+            for (label n= 0; n < numNeuronsPerLayer_; n++) {z5(0,n) = tanh(z5(0,n));}
             
             // 5th hidden layer
-            RectangularMatrix<scalar>z6 = z5* w5 + b5; 
-            for (label n = 0; n < numNeuronsPerLayer_; n++) {z6(0,n) = tanh(z6(0,n));}
+            z6 = z5* w5 + b5; 
+            for (label n= 0; n < numNeuronsPerLayer_; n++) {z6(0,n) = tanh(z6(0,n));}
 
             // 6th hidden layer
-            RectangularMatrix<scalar>z7 = z6* w6 + b6; 
-            for (label n = 0; n < numNeuronsPerLayer_; n++) {z7(0,n) = tanh(z7(0,n));}
+            z7 = z6* w6 + b6; 
+            for (label n= 0; n < numNeuronsPerLayer_; n++) {z7(0,n) = tanh(z7(0,n));}
             
             // 7th hidden layer
-            RectangularMatrix<scalar>z8 = z7* w7 + b7; 
-            for (label n = 0; n < numNeuronsPerLayer_; n++) {z8(0,n) = tanh(z8(0,n));}
+            z8 = z7* w7 + b7; 
+            for (label n= 0; n < numNeuronsPerLayer_; n++) {z8(0,n) = tanh(z8(0,n));}
 
             // 8th hidden layer
-            RectangularMatrix<scalar>z9 = z8 * w8 + b8; 
-            for (label n = 0; n < numNeuronsPerLayer_; n++) {z9(0,n) = tanh(z9(0,n));}
+            z9 = z8 * w8 + b8; 
+            for (label n= 0; n < numNeuronsPerLayer_; n++) {z9(0,n) = tanh(z9(0,n));}
 
             // 9th hidden layer
-            RectangularMatrix<scalar>z10 = z9* w9 + b9; 
-            for (label n = 0; n < numNeuronsPerLayer_; n++) {z10(0,n) = tanh(z10(0,n));}
+            z10 = z9* w9 + b9; 
+            for (label n= 0; n < numNeuronsPerLayer_; n++) {z10(0,n) = tanh(z10(0,n));}
             
             // 10th hidden layer
-            RectangularMatrix<scalar>z11 = z10* w10 + b10; 
-            for (label n = 0; n < numNeuronsPerLayer_; n++) {z11(0,n) = tanh(z11(0,n));}
+            z11 = z10* w10 + b10; 
+            for (label n= 0; n < numNeuronsPerLayer_; n++) {z11(0,n) = tanh(z11(0,n));}
 
             // output layer
-            RectangularMatrix<scalar>z12 = z11 * w11.T() + b11; 
+            z12 = z11 * w11.T() + b11; 
             
-            // normalise beta 
-            betaFieldInversionML_[cI] = z12(0,0) * stdArray[9] + meanArray[9];     
+            // normalise beta
+            betaFieldInversionML_[i] = z12(0,0) * stdArray[9] + meanArray[9];    
                         
         }
     }
