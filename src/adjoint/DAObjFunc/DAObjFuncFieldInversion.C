@@ -484,7 +484,7 @@ void DAObjFuncFieldInversion::calcObjFunc(
     else if (data_ == "weightedUSingleComponentData")
     {
         stateName_ = "U";
-        stateRefName_ = data_;
+        stateRefName_ = "USingleComponentData";
         scalarList velocityCompt;
         objFuncDict_.readEntry<scalarList>("velocityComponent", velocityCompt);
         vector velocityComponent_; 
