@@ -506,9 +506,7 @@ void DAObjFuncFieldInversion::calcObjFunc(
         {
             if (stateRef[cellI] < 1e16)
             {
-                vector URANS(state[cellI]);
-                scalar UData(stateRef[cellI]); // assume only using one component of velocity
-                weightsObjFunc_[cellI] = mag(scale_ * (URANS & velocityComponent_) - UData);
+                weightsObjFunc_[cellI] = mag(scale_ * (state[cellI] & velocityComponent_) - stateRef[cellI]);
             }
         }
 
