@@ -192,6 +192,9 @@ protected:
 
     /// the reference pressure field data
     volScalarField USingleComponentData_;
+
+    /// if weighting the objective function (experimental)
+    volScalarField weightsObjFunc_; 
     
     /// Name of turbulent transport equation to modify: can be k, omega, or all
     /// if k OR omega is selected the field inversion modification is: ProdTerm(k or omega)*betaFieldInversion

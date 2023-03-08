@@ -481,6 +481,65 @@ void DAObjFuncFieldInversion::calcObjFunc(
             objFuncValue = weight_ * objFuncValue;
         }
     }
+    else if (data_ == "weightedUSingleComponentData")
+    {
+        stateName_ = "U";
+        stateRefName_ = data_;
+        scalarList velocityCompt;
+        objFuncDict_.readEntry<scalarList>("velocityComponent", velocityCompt);
+        vector velocityComponent_; 
+        velocityComponent_[0] = velocityCompt[0];
+        velocityComponent_[1] = velocityCompt[1];
+        velocityComponent_[2] = velocityCompt[2];
+
+        // get the velocity field
+        const volVectorField state = db.lookupObject<volVectorField>(stateName_);
+
+        // only use data for a specific component
+        const volScalarField stateRef = db.lookupObject<volScalarField>(stateRefName_);
+
+        // get the weights field
+        volScalarField& weightsObjFunc_ = const_cast<volScalarField&>(db.lookupObject<volScalarField>("weightsObjFunc"));
+
+        // work out the absolute difference between the RANS and reference data
+        forAll(weightsObjFunc_, cellI)
+        {
+            if (stateRef[cellI] < 1e16)
+            {
+                vector URANS(state[cellI]);
+                scalar UData(stateRef[cellI]); // assume only using one component of velocity
+                weightsObjFunc_[cellI] = mag(scale_ * (URANS & velocityComponent_) - UData);
+            }
+        }
+
+        // get the maximum absolute error
+        scalar maxAbsoluteError = gMax(weightsObjFunc_);
+
+        // normalise the maximum absolute error
+        weightsObjFunc_ /= maxAbsoluteError; 
+
+        forAll(objFuncCellSources, idxI)
+        {
+            const label& cellI = objFuncCellSources[idxI];
+            if (stateRef[cellI] < 1e16)
+            {
+                scalar weight(weightsObjFunc_[cellI])
+                vector URANS(state[cellI]);
+                scalar UData(stateRef[cellI]); // assume only using one component of velocity
+                objFuncCellValues[idxI] = weight * (sqr(scale_ * (URANS & velocityComponent_) - UData));
+                objFuncValue += objFuncCellValues[idxI];
+            }
+        }
+
+        // need to reduce the sum of all objectives across all processors
+        reduce(objFuncValue, sumOp<scalar>());
+
+        if (weightedSum_ == true)
+        {
+            objFuncValue = weight_ * objFuncValue;
+        }
+
+    }
     else
     {
         FatalErrorIn("") << "dataType: " << data_

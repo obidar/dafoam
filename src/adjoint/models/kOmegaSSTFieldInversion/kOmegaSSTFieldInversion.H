@@ -64,6 +64,9 @@ protected:
     /// the reference pressure field data
     volScalarField USingleComponentData_;
 
+    /// the weights for weighted objective function (experimental)
+    volScalarField weightsObjFunc_;
+
     //- Wall distance
     //  Note: different to wall distance in parent RASModel
     //  which is for near-wall cells only

@@ -119,6 +119,16 @@ kOmegaSSTFieldInversion<BasicTurbulenceModel>::kOmegaSSTFieldInversion(
           this->mesh_,
           dimensionedScalar("USingleComponentData", dimensionSet(0, 0, 0, 0, 0, 0, 0), 0.0),
           zeroGradientFvPatchField<scalar>::typeName),
+      weightsObjFunc_(
+          IOobject(
+              "weightsObjFunc",
+              this->runTime_.timeName(),
+              this->mesh_,
+              IOobject::READ_IF_PRESENT,
+              IOobject::AUTO_WRITE),
+          this->mesh_,
+          dimensionedScalar("weightsObjFunc", dimensionSet(0, 0, 0, 0, 0, 0, 0), 0.0),
+          zeroGradientFvPatchField<scalar>::typeName),
       y_(wallDist::New(this->mesh_).y())
 
 {
