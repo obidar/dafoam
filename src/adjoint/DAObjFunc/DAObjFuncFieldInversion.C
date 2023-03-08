@@ -521,9 +521,7 @@ void DAObjFuncFieldInversion::calcObjFunc(
             const label& cellI = objFuncCellSources[idxI];
             if (stateRef[cellI] < 1e16)
             {
-                scalar weight(weightsObjFunc_[cellI])
-                // vector URANS(state[cellI]);
-                //scalar UData(stateRef[cellI]); // assume only using one component of velocity
+                scalar weight(weightsObjFunc_[cellI]);
                 objFuncCellValues[idxI] = weight * (sqr(scale_ * (state[cellI] & velocityComponent_) - stateRef[cellI]));
                 objFuncValue += objFuncCellValues[idxI];
             }
