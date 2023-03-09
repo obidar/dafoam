@@ -554,7 +554,7 @@ void DAObjFuncFieldInversion::calcObjFunc(
         const volScalarField stateRef = db.lookupObject<volScalarField>(stateRefName_);
 
         // get the weights field
-        const weightsObjFunc_ = db.lookupObject<volScalarField>("weightsObjFunc");
+        const volScalarField weightsObjFunc_ = db.lookupObject<volScalarField>("weightsObjFunc");
 
         forAll(objFuncCellSources, idxI)
         {
