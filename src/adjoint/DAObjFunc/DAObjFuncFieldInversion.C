@@ -481,7 +481,7 @@ void DAObjFuncFieldInversion::calcObjFunc(
             objFuncValue = weight_ * objFuncValue;
         }
     }
-    else if (data_ == "weightedUSingleComponentData")
+    else if (data_ == "adaptiveWeightsUSingleComponentData")
     {
         stateName_ = "U";
         stateRefName_ = "USingleComponentData";
@@ -515,6 +515,46 @@ void DAObjFuncFieldInversion::calcObjFunc(
 
         // normalise the maximum absolute error
         weightsObjFunc_ /= maxAbsoluteError; 
+
+        forAll(objFuncCellSources, idxI)
+        {
+            const label& cellI = objFuncCellSources[idxI];
+            if (stateRef[cellI] < 1e16)
+            {
+                scalar weight(weightsObjFunc_[cellI]);
+                objFuncCellValues[idxI] = weight * (sqr(scale_ * (state[cellI] & velocityComponent_) - stateRef[cellI]));
+                objFuncValue += objFuncCellValues[idxI];
+            }
+        }
+
+        // need to reduce the sum of all objectives across all processors
+        reduce(objFuncValue, sumOp<scalar>());
+
+        if (weightedSum_ == true)
+        {
+            objFuncValue = weight_ * objFuncValue;
+        }
+
+    }
+    else if (data_ == "weightedUSingleComponentData")
+    {
+        stateName_ = "U";
+        stateRefName_ = "USingleComponentData";
+        scalarList velocityCompt;
+        objFuncDict_.readEntry<scalarList>("velocityComponent", velocityCompt);
+        vector velocityComponent_; 
+        velocityComponent_[0] = velocityCompt[0];
+        velocityComponent_[1] = velocityCompt[1];
+        velocityComponent_[2] = velocityCompt[2];
+
+        // get the velocity field
+        const volVectorField state = db.lookupObject<volVectorField>(stateName_);
+
+        // only use data for a specific component
+        const volScalarField stateRef = db.lookupObject<volScalarField>(stateRefName_);
+
+        // get the weights field
+        const weightsObjFunc_ = db.lookupObject<volScalarField>("weightsObjFunc");
 
         forAll(objFuncCellSources, idxI)
         {
