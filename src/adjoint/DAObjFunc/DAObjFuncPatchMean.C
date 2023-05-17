@@ -5,18 +5,18 @@
 
 \*---------------------------------------------------------------------------*/
 
-#include "DAObjFuncVariableVolSum.H"
+#include "DAObjFuncPatchMean.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 namespace Foam
 {
 
-defineTypeNameAndDebug(DAObjFuncVariableVolSum, 0);
-addToRunTimeSelectionTable(DAObjFunc, DAObjFuncVariableVolSum, dictionary);
+defineTypeNameAndDebug(DAObjFuncPatchMean, 0);
+addToRunTimeSelectionTable(DAObjFunc, DAObjFuncPatchMean, dictionary);
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-DAObjFuncVariableVolSum::DAObjFuncVariableVolSum(
+DAObjFuncPatchMean::DAObjFuncPatchMean(
     const fvMesh& mesh,
     const DAOption& daOption,
     const DAModel& daModel,
@@ -35,7 +35,6 @@ DAObjFuncVariableVolSum::DAObjFuncVariableVolSum(
         objFuncPart,
         objFuncDict)
 {
-
     // Assign type, this is common for all objectives
     objFuncDict_.readEntry<word>("type", objFuncType_);
 
@@ -46,19 +45,10 @@ DAObjFuncVariableVolSum::DAObjFuncVariableVolSum(
     objFuncDict_.readEntry<word>("varType", varType_);
 
     objFuncDict_.readEntry<label>("component", component_);
-
-    objFuncDict_.readEntry<label>("isSquare", isSquare_);
-
-    objFuncDict_.readEntry<label>("divByTotalVol", divByTotalVol_);
-
-    if (daIndex.adjStateNames.found(varName_))
-    {
-        objFuncConInfo_ = {{varName_}};
-    }
 }
 
 /// calculate the value of objective function
-void DAObjFuncVariableVolSum::calcObjFunc(
+void DAObjFuncPatchMean::calcObjFunc(
     const labelList& objFuncFaceSources,
     const labelList& objFuncCellSources,
     scalarList& objFuncFaceValues,
@@ -67,8 +57,7 @@ void DAObjFuncVariableVolSum::calcObjFunc(
 {
     /*
     Description:
-        Calculate the obj = mesh volume * variable (whether to take a square of the variable
-        depends on isSquare)
+        Calculate the patch mean
 
     Input:
         objFuncFaceSources: List of face source (index) for this objective
@@ -85,77 +74,63 @@ void DAObjFuncVariableVolSum::calcObjFunc(
         objFuncValue: the sum of objective, reduced across all processors and scaled by "scale"
     */
 
+    // calculate the area of all the patches. We need to recompute because the surface area 
+    // may change during the optimization
+    areaSum_ = 0.0;
+    forAll(objFuncFaceSources, idxI)
+    {
+        const label& objFuncFaceI = objFuncFaceSources[idxI];
+        label bFaceI = objFuncFaceI - daIndex_.nLocalInternalFaces;
+        const label patchI = daIndex_.bFacePatchI[bFaceI];
+        const label faceI = daIndex_.bFaceFaceI[bFaceI];
+        areaSum_ += mesh_.magSf().boundaryField()[patchI][faceI];
+    }
+    reduce(areaSum_, sumOp<scalar>());
+
     // initialize objFunValue
     objFuncValue = 0.0;
 
-    // initialize faceValues to zero
-    forAll(objFuncCellValues, idxI)
-    {
-        objFuncCellValues[idxI] = 0.0;
-    }
-
     const objectRegistry& db = mesh_.thisDb();
-
-    scalar totalVol = 1.0;
-
-    if (divByTotalVol_)
-    {
-        forAll(mesh_.cells(), cellI)
-        {
-            totalVol += mesh_.V()[cellI];
-        }
-        reduce(totalVol, sumOp<scalar>());
-    }
 
     if (varType_ == "scalar")
     {
         const volScalarField& var = db.lookupObject<volScalarField>(varName_);
-        // calculate mass
-        forAll(objFuncCellSources, idxI)
+
+        // calculate area weighted heat flux
+        forAll(objFuncFaceSources, idxI)
         {
-            const label& cellI = objFuncCellSources[idxI];
-            scalar volume = mesh_.V()[cellI];
-            if (isSquare_)
-            {
-                objFuncCellValues[idxI] = scale_ * volume * var[cellI] * var[cellI];
-            }
-            else
-            {
-                objFuncCellValues[idxI] = scale_ * volume * var[cellI];
-            }
-            objFuncValue += objFuncCellValues[idxI];
+            const label& objFuncFaceI = objFuncFaceSources[idxI];
+            label bFaceI = objFuncFaceI - daIndex_.nLocalInternalFaces;
+            const label patchI = daIndex_.bFacePatchI[bFaceI];
+            const label faceI = daIndex_.bFaceFaceI[bFaceI];
+            scalar area = mesh_.magSf().boundaryField()[patchI][faceI];
+            objFuncValue += scale_ * area * var.boundaryField()[patchI][faceI] / areaSum_;
         }
     }
     else if (varType_ == "vector")
     {
         const volVectorField& var = db.lookupObject<volVectorField>(varName_);
-        // calculate mass
-        forAll(objFuncCellSources, idxI)
+
+        // calculate area weighted heat flux
+        forAll(objFuncFaceSources, idxI)
         {
-            const label& cellI = objFuncCellSources[idxI];
-            scalar volume = mesh_.V()[cellI];
-            if (isSquare_)
-            {
-                objFuncCellValues[idxI] = scale_ * volume * var[cellI][component_] * var[cellI][component_];
-            }
-            else
-            {
-                objFuncCellValues[idxI] = scale_ * volume * var[cellI][component_];
-            }
-            objFuncValue += objFuncCellValues[idxI];
+            const label& objFuncFaceI = objFuncFaceSources[idxI];
+            label bFaceI = objFuncFaceI - daIndex_.nLocalInternalFaces;
+            const label patchI = daIndex_.bFacePatchI[bFaceI];
+            const label faceI = daIndex_.bFaceFaceI[bFaceI];
+            scalar area = mesh_.magSf().boundaryField()[patchI][faceI];
+            objFuncValue += scale_ * area * var.boundaryField()[patchI][faceI][component_] / areaSum_;
         }
     }
     else
     {
-        FatalErrorIn("") << "varType " << varType_ << " not supported!"
-                         << "Options are: scalar or vector"
-                         << abort(FatalError);
+        FatalErrorIn("DAObjFuncPatchMean::calcObjFunc")
+            << "varType not valid. Options are scalar or vector"
+            << abort(FatalError);
     }
 
     // need to reduce the sum of force across all processors
     reduce(objFuncValue, sumOp<scalar>());
-
-    objFuncValue /= totalVol;
 
     return;
 }

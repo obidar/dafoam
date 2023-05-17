@@ -129,6 +129,18 @@ public:
         DASolverPtr_->calcdForcedXvAD(xvVec, wVec, fBarVec, dForcedW);
     }
 
+    /// compute dAcoudXv
+    void calcdAcousticsdXvAD(
+        const Vec xvVec,
+        const Vec wVec,
+        const Vec fBarVec,
+        Vec dAcoudW,
+        word varName,
+        word groupName)
+    {
+        DASolverPtr_->calcdAcousticsdXvAD(xvVec, wVec, fBarVec, dAcoudW, varName, groupName);
+    }
+
     /// compute dRdAct^T*Psi
     void calcdRdActTPsiAD(
         const Vec xvVec,
@@ -148,6 +160,18 @@ public:
         Vec dForcedW)
     {
         DASolverPtr_->calcdForcedWAD(xvVec, wVec, fBarVec, dForcedW);
+    }
+
+    /// compute dAcoudW
+    void calcdAcousticsdWAD(
+        const Vec xvVec,
+        const Vec wVec,
+        const Vec fBarVec,
+        Vec dAcoudW,
+        word varName,
+        word groupName)
+    {
+        DASolverPtr_->calcdAcousticsdWAD(xvVec, wVec, fBarVec, dAcoudW, varName, groupName);
     }
 
     /// compute dRdAOA^T*Psi
@@ -407,6 +431,24 @@ public:
         return DASolverPtr_->checkMesh();
     }
 
+    /// Get the number of faces for the MDO coupling patches
+    label getNCouplingFaces()
+    {
+        return DASolverPtr_->getNCouplingFaces();
+    }
+
+    /// Get the number of points for the MDO coupling patches
+    label getNCouplingPoints()
+    {
+        return DASolverPtr_->getNCouplingPoints();
+    }
+
+    // return the number of local mesh points
+    label getNLocalPoints() const
+    {
+        return DASolverPtr_->getNLocalPoints();
+    }
+
     /// return the number of local adjoint states
     label getNLocalAdjointStates() const
     {
@@ -439,10 +481,86 @@ public:
         return returnVal;
     }
 
-    /// return the value of objective
-    void getForces(Vec fX, Vec fY, Vec fZ, Vec pointList)
+    void calcCouplingFaceCoords(
+        const double* volCoords,
+        double* surfCoords)
     {
-        DASolverPtr_->getForces(fX, fY, fZ, pointList);
+#if !defined(CODI_AD_REVERSE) && !defined(CODI_AD_FORWARD)
+        DASolverPtr_->calcCouplingFaceCoords(volCoords, surfCoords);
+        return;
+#endif
+        FatalErrorIn("calcCouplingFaceCoords") << "should not call this func in AD mode!"
+                                               << abort(FatalError);
+    }
+
+    /// calc matrix-vector products for calcCouplingFaceCoords
+    void calcCouplingFaceCoordsAD(
+        const double* volCoords,
+        const double* seeds,
+        double* product)
+    {
+        DASolverPtr_->calcCouplingFaceCoordsAD(volCoords, seeds, product);
+    }
+
+    /// return the force on the FSI patches
+    void getForces(Vec fX, Vec fY, Vec fZ)
+    {
+        DASolverPtr_->getForces(fX, fY, fZ);
+    }
+
+    /// return the thermal (temperature or heat flux) on the conjugate heat transfer patches
+    void getThermal(
+        const word outputName,
+        const double* volCoords,
+        const double* states,
+        double* thermal)
+    {
+#if !defined(CODI_AD_REVERSE) && !defined(CODI_AD_FORWARD)
+        DASolverPtr_->getThermal(outputName, volCoords, states, thermal);
+        return;
+#endif
+        FatalErrorIn("getThermal") << "should not call this func in AD mode!"
+                                   << abort(FatalError);
+    }
+
+    /// compute the temperature on the conjugate heat transfer patches AD
+    void getThermalAD(
+        const word inputName,
+        const word outputName,
+        const double* volCoords,
+        const double* states,
+        const double* seeds,
+        double* product)
+    {
+        DASolverPtr_->getThermalAD(inputName, outputName, volCoords, states, seeds, product);
+    }
+
+    /// set the thermal (temperature or heat flux) BC to the conjugate heat transfer patches
+    void setThermal(const word varName, double* thermal)
+    {
+#if !defined(CODI_AD_REVERSE) && !defined(CODI_AD_FORWARD)
+        DASolverPtr_->setThermal(varName, thermal);
+        return;
+#endif
+        FatalErrorIn("setThermal") << "should not call this func in AD mode!"
+                                   << abort(FatalError);
+    }
+
+    void calcdRdThermalTPsiAD(
+        const word varName,
+        const double* volCoords,
+        const double* states,
+        const double* thermal,
+        const double* seeds,
+        double* product)
+    {
+        DASolverPtr_->calcdRdThermalTPsiAD(varName, volCoords, states, thermal, seeds, product);
+    }
+
+    /// return the acoustic data values
+    void getAcousticData(Vec x, Vec y, Vec z, Vec nX, Vec nY, Vec nZ, Vec a, Vec fX, Vec fY, Vec fZ, word groupName)
+    {
+        DASolverPtr_->getAcousticData(x, y, z, nX, nY, nZ, a, fX, fY, fZ, groupName);
     }
 
     /// call DASolver::printAllOptions
@@ -629,32 +747,38 @@ public:
 
     /// calculate the fvSource based on the force profile
     void calcFvSource(
+        const word propName,
+        Vec aForce,
+        Vec tForce,
+        Vec rDist,
+        Vec targetForce,
         Vec center,
-        Vec radius,
-        Vec force,
         Vec fvSource)
     {
-        DASolverPtr_->calcFvSource(center, radius, force, fvSource);
+        DASolverPtr_->calcFvSource(propName, aForce, tForce, rDist, targetForce, center, fvSource);
     }
 
     void calcdFvSourcedInputsTPsiAD(
+        const word propName,
         const word mode,
+        Vec aForce,
+        Vec tForce,
+        Vec rDist,
+        Vec targetForce,
         Vec center,
-        Vec radius,
-        Vec force,
         Vec psi,
-        Vec prod)
+        Vec dFvSource)
     {
-        DASolverPtr_->calcdFvSourcedInputsTPsiAD(mode, center, radius, force, psi, prod);
+        DASolverPtr_->calcdFvSourcedInputsTPsiAD(propName, mode, aForce, tForce, rDist, targetForce, center, psi, dFvSource);
     }
 
     void calcForceProfile(
-        Vec xvVec,
-        Vec stateVec,
-        Vec fProfileVec,
-        Vec rProfileVec)
+        Vec center,
+        Vec aForceL,
+        Vec tForceL,
+        Vec rDistL)
     {
-        DASolverPtr_->calcForceProfile(xvVec, stateVec, fProfileVec, rProfileVec);
+        DASolverPtr_->calcForceProfile(center, aForceL, tForceL, rDistL);
     }
 
     void calcdForcedStateTPsiAD(

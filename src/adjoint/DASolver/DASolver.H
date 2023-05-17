@@ -35,6 +35,7 @@
 #include "DALinearEqn.H"
 #include "volPointInterpolation.H"
 #include "IOMRFZoneListDF.H"
+#include "interpolateSplineXY.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -190,6 +191,12 @@ protected:
     /// periodicity of oscillating flow variables (unsteady)
     scalar periodicity_ = 0.0;
 
+    /// primal residual tolerance
+    scalar primalMinResTol_ = 0.0;
+
+    /// primal min number of iterations
+    label primalMinIters_ = -1;
+
     /// save primal variable to time instance list for hybrid adjoint (unsteady)
     void saveTimeInstanceFieldHybrid(label& timeInstanceI);
 
@@ -315,6 +322,15 @@ public:
     /// Update the OpenFoam mesh point coordinates based on the point vector xvVec
     void updateOFMesh(const Vec xvVec);
 
+    /// Update the OpenFOAM field values (including both internal and boundary fields) based on the state array
+    void updateOFField(const scalar* volCoords);
+
+    /// Update the OpenFoam mesh point coordinates based on the volume point coords array
+    void updateOFMesh(const scalar* states);
+
+    /// reset the seeds (gradient to zeros) for all OpenFOAM variables
+    void resetOFSeeds();
+
     /// compute dRdBC
     void calcdRdBC(
         const Vec xvVec,
@@ -429,6 +445,14 @@ public:
         const word objFuncName,
         Vec dFdW);
 
+    void calcdRdThermalTPsiAD(
+        const word varName,
+        const double* volCoords,
+        const double* states,
+        const double* thermal,
+        const double* seeds,
+        double* product);
+
     /// compute dRdXv^T*Psi
     void calcdRdXvTPsiAD(
         const Vec xvVec,
@@ -442,6 +466,15 @@ public:
         const Vec wVec,
         const Vec fBarVec,
         Vec dForcedXv);
+
+    /// compute dAcoudXv
+    void calcdAcousticsdXvAD(
+        const Vec xvVec,
+        const Vec wVec,
+        const Vec fBarVec,
+        Vec dForcedXv,
+        word varName,
+        word groupName);
 
     /// compute dFdXv AD
     void calcdFdXvAD(
@@ -464,6 +497,14 @@ public:
         const Vec fBarVec,
         Vec dForcedW);
 
+    void calcdAcousticsdWAD(
+        const Vec xvVec,
+        const Vec wVec,
+        const Vec fBarVec,
+        Vec dForcedW,
+        word varName,
+        word groupName);
+
     /// compute dFdACT AD
     void calcdFdACTAD(
         const Vec xvVec,
@@ -477,6 +518,9 @@ public:
         const label oldTimeLevel,
         const Vec psi,
         Vec dRdWOldTPsi);
+
+    /// return the coupling patch list if any scenario is active on couplingInfo dict otherwise return design surface
+    void getCouplingPatchList(wordList& patchList, word groupName = "NONE");
 
     /// matrix free matrix-vector product function to compute vecY=dRdWT*vecX
     static PetscErrorCode dRdWTMatVecMultFunction(
@@ -506,11 +550,20 @@ public:
     /// register all force as the ouptut for referse-mod AD
     void registerForceOutput4AD(List<scalar>& fX, List<scalar>& fY, List<scalar>& fZ);
 
+    /// register acoustic as the ouptut for referse-mod AD
+    void registerAcousticOutput4AD(List<scalar>& a);
+
     /// assign the reverse-mode AD input seeds from vecX to the residuals in OpenFOAM
     void assignVec2ResidualGradient(Vec vecX);
 
+    /// assign the reverse-mode AD input seeds from vecX to the residuals in OpenFOAM
+    void assignSeeds2ResidualGradient(const double* seeds);
+
     /// assign the reverse-mode AD input seeds from fBarVec to the force vectors in OpenFOAM
     void assignVec2ForceGradient(Vec fBarVec, List<scalar>& fX, List<scalar>& fY, List<scalar>& fZ);
+
+    /// assign the reverse-mode AD input seeds from fBarVec to the acoustic vectors in OpenFOAM
+    void assignVec2AcousticGradient(Vec fBarVec, List<scalar>& a, label offset, label step);
 
     /// set the reverse-mode AD derivatives from the state variables in OpenFOAM to vecY
     void assignStateGradient2Vec(
@@ -642,6 +695,12 @@ public:
         return meshPtr_->nCells();
     }
 
+    /// return the number of local points
+    label getNLocalPoints() const
+    {
+        return meshPtr_->nPoints();
+    }
+
     /// initialize DASolver::daObjFuncPtrList_ one needs to call this before calling printAllObjFuncs
     void setDAObjFuncList();
 
@@ -658,26 +717,101 @@ public:
     scalar getObjFuncValue(const word objFuncName);
 
     /// return the forces of the desired fluid-structure-interaction patches
-    void getForces(Vec fX, Vec fY, Vec fZ, Vec pointList);
+    void getForces(
+        Vec fX,
+        Vec fY,
+        Vec fZ);
 
-    /// return the number of points used for force calculation
-    void getForcesInfo(label& nPoints, List<word>& patchList);
+    /// return the positions, normals, areas, and forces of the desired acoustic patches
+    void getAcousticData(
+        Vec x,
+        Vec y,
+        Vec z,
+        Vec nX,
+        Vec nY,
+        Vec nZ,
+        Vec a,
+        Vec fX,
+        Vec fY,
+        Vec fZ,
+        word groupName);
+
+    /// return the number of points and faces for MDO patches
+    void getPatchInfo(
+        label& nPoints,
+        label& nFaces,
+        List<word>& patchList);
 
     /// compute the forces of the desired fluid-structure-interation patches
-    void getForcesInternal(List<scalar>& fX, List<scalar>& fY, List<scalar>& fZ, List<label>& pointList, List<word>& patchList);
+    void getForcesInternal(
+        List<scalar>& fX,
+        List<scalar>& fY,
+        List<scalar>& fZ,
+        List<word>& patchList);
+
+    /// Get the number of faces for the MDO coupling patches
+    label getNCouplingFaces();
+
+    /// Get the number of points for the MDO coupling patches
+    label getNCouplingPoints();
+
+    /// return the face coordinates based on vol coords
+    void calcCouplingFaceCoords(
+        const scalar* volCoords,
+        scalar* surfCoords);
+
+    /// calc matrix-vector products for calcCouplingFaceCoords
+    void calcCouplingFaceCoordsAD(
+        const double* volCoords,
+        const double* seeds,
+        double* product);
+
+    /// compute the temperature on the conjugate heat transfer patches
+    void getThermal(
+        const word outputName,
+        const scalar* volCoords,
+        const scalar* states,
+        scalar* thermal);
+
+    /// compute the temperature on the conjugate heat transfer patches AD
+    void getThermalAD(
+        const word inputName,
+        const word outputName,
+        const double* volCoords,
+        const double* states,
+        const double* seeds,
+        double* product);
+
+    /// assign temperature values to the conjugate heat transfer patches
+    void setThermal(const word varName, scalar* thermal);
+
+    /// compute the positions, normals, areas, and forces of the desired acoustic patches
+    void getAcousticDataInternal(
+        List<scalar>& x,
+        List<scalar>& y,
+        List<scalar>& z,
+        List<scalar>& nX,
+        List<scalar>& nY,
+        List<scalar>& nZ,
+        List<scalar>& a,
+        List<scalar>& fX,
+        List<scalar>& fY,
+        List<scalar>& fZ,
+        List<word>& patchList);
 
     /// calculate the radial profile of the force on the propeller surface
     void calcForceProfile(
-        Vec xvVec,
-        Vec stateVec,
-        Vec fProfileVec,
-        Vec rProfileVec);
+        Vec center,
+        Vec aForceL,
+        Vec tForceL,
+        Vec rDistL);
 
     void calcForceProfileInternal(
-        scalarList& xv,
-        scalarList& state,
-        scalarList& fProfile,
-        scalarList& rProfile);
+        fvMesh& mesh,
+        const vector& center,
+        scalarList& aForceL,
+        scalarList& tForceL,
+        scalarList& rDistL);
 
     void calcdForcedStateTPsiAD(
         const word mode,
@@ -688,24 +822,33 @@ public:
 
     /// calculate the fvSource based on the radial force profile
     void calcFvSourceInternal(
-        const scalarList& center,
-        const scalarList& radius,
-        const scalarList& forcce,
+        const word propName,
+        const scalarField& aForce,
+        const scalarField& tForce,
+        const scalarField& rDistList,
+        const scalarList& targetForce,
+        const vector& center,
         volVectorField& fvSource);
 
     void calcFvSource(
-        Vec centerVec,
-        Vec radiusVec,
-        Vec forceVec,
+        const word propName,
+        Vec aForce,
+        Vec tForce,
+        Vec rDist,
+        Vec targetForce,
+        Vec center,
         Vec fvSource);
 
     void calcdFvSourcedInputsTPsiAD(
+        const word propName,
         const word mode,
-        Vec centerVec,
-        Vec radiusVec,
-        Vec forceVec,
-        Vec psiVec,
-        Vec prodVec);
+        Vec aForce,
+        Vec tForce,
+        Vec rDist,
+        Vec targetForce,
+        Vec center,
+        Vec psi,
+        Vec dFvSource);
 
     /// print all DAOption
     void printAllOptions()

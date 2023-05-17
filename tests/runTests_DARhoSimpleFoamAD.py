@@ -43,7 +43,6 @@ rho0 = 1.0
 # test incompressible solvers
 aeroOptions = {
     "solverName": "DARhoSimpleFoam",
-    "designSurfaceFamily": "designSurface",
     "designSurfaces": ["wallsbump"],
     "useAD": {"mode": "reverse"},
     "primalMinResTol": 1e-12,
@@ -134,6 +133,7 @@ aeroOptions = {
                 "varType": "vector",
                 "component": 0,
                 "isSquare": 1,
+                "divByTotalVol": 0,
                 "scale": 1.0,
                 "addToAdjoint": True,
             },
@@ -146,6 +146,7 @@ aeroOptions = {
                 "varType": "scalar",
                 "component": 0,
                 "isSquare": 0,
+                "divByTotalVol": 0,
                 "scale": 1.0,
                 "addToAdjoint": True,
             },
@@ -160,6 +161,7 @@ aeroOptions = {
                 "varType": "vector",
                 "component": 0,
                 "isSquare": 0,
+                "divByTotalVol": 0,
                 "scale": 1.0,
                 "addToAdjoint": True,
             },
@@ -252,7 +254,6 @@ DVGeo.addGlobalDV(
 DASolver = PYDAFOAM(options=aeroOptions, comm=gcomm)
 DASolver.setDVGeo(DVGeo)
 mesh = USMesh(options=meshOptions, comm=gcomm)
-DASolver.addFamilyGroup(DASolver.getOption("designSurfaceFamily"), DASolver.getOption("designSurfaces"))
 DASolver.printFamilyList()
 DASolver.setMesh(mesh)
 # set evalFuncs
@@ -262,7 +263,7 @@ DASolver.setEvalFuncs(evalFuncs)
 # DVCon
 DVCon = DVConstraints()
 DVCon.setDVGeo(DVGeo)
-[p0, v1, v2] = DASolver.getTriangulatedMeshSurface(groupName=DASolver.getOption("designSurfaceFamily"))
+[p0, v1, v2] = DASolver.getTriangulatedMeshSurface(groupName=DASolver.designSurfacesGroup)
 surf = [p0, v1, v2]
 DVCon.setSurface(surf)
 

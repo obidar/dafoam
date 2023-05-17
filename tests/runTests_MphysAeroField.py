@@ -157,7 +157,7 @@ class Top(Multipoint):
         self.add_constraint("cruise.aero_post.CL", equals=0.3, scaler=1.0)
 
 
-prob = om.Problem()
+prob = om.Problem(reports=None)
 prob.model = Top()
 
 prob.driver = om.pyOptSparseDriver()
@@ -192,13 +192,13 @@ prob.run_model()
 totals = prob.compute_totals()
 
 
-alphaNorm = np.linalg.norm(totals[("cruise.aero_post.CL", "dvs.alphaPorosity")].flatten())
+alphaNorm = np.linalg.norm(totals[("cruise.aero_post.functionals.CL", "dvs.alphaPorosity")].flatten())
 alphaNormSum = gcomm.allreduce(alphaNorm, op=MPI.SUM)
 
 if gcomm.rank == 0:
     derivDict = {}
     derivDict["CL"] = {}
     derivDict["CL"]["alpha"] = [alphaNormSum]
-    derivDict["CL"]["shape"] = totals[("cruise.aero_post.CL", "dvs.shape")][0]
-    derivDict["CL"]["aoa"] = totals[("cruise.aero_post.CL", "dvs.aoa")][0]
+    derivDict["CL"]["shape"] = totals[("cruise.aero_post.functionals.CL", "dvs.shape")][0]
+    derivDict["CL"]["aoa"] = totals[("cruise.aero_post.functionals.CL", "dvs.aoa")][0]
     reg_write_dict(derivDict, 1e-4, 1e-6)
