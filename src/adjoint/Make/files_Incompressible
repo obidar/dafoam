@@ -44,12 +44,15 @@ DAField/DAField.C
 DAObjFunc/DAObjFunc.C
 DAObjFunc/DAObjFuncForce.C
 DAObjFunc/DAObjFuncMoment.C
+DAObjFunc/DAObjFuncPower.C
 DAObjFunc/DAObjFuncWallHeatFlux.C
 DAObjFunc/DAObjFuncCenterOfPressure.C
 DAObjFunc/DAObjFuncTotalPressure.C
 DAObjFunc/DAObjFuncFieldInversion.C
 DAObjFunc/DAObjFuncVariableVolSum.C
 DAObjFunc/DAObjFuncMeshQualityKS.C
+DAObjFunc/DAObjFuncPatchMean.C
+DAObjFunc/DAObjFuncMassFlowRate.C
 
 DAFvSource/DAFvSource.C
 DAFvSource/DAFvSourceActuatorDisk.C

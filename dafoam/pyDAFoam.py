@@ -11,7 +11,7 @@
 
 """
 
-__version__ = "3.0.1"
+__version__ = "3.0.6"
 
 import subprocess
 import os
@@ -88,18 +88,7 @@ class DAOPTION(object):
         ## may not converge or it may be inaccurate! For "phi", use 1.0 to normalization
         ## Example
         ##     normalizeStates = {"U": 10.0, "p": 101325.0, "phi": 1.0, "nuTilda": 1.e-4}
-        self.normalizeStates = {
-            "p": 1.0,
-            "phi": 1.0,
-            "U": 1.0,
-            "T": 1.0,
-            "nuTilda": 1.0,
-            "k": 1.0,
-            "epsilon": 1.0,
-            "omega": 1.0,
-            "p_rgh": 1.0,
-            "D": 1.0,
-        }
+        self.normalizeStates = {}
 
         ## Information on objective function. Each objective function requires a different input forma
         ## But for all objectives, we need to give a name to the objective function, e.g., CD or any
@@ -309,11 +298,37 @@ class DAOPTION(object):
 
         ## List of patch names for the design surface. These patch names need to be of wall type
         ## and shows up in the constant/polyMesh/boundary file
-        self.designSurfaces = ["None"]
+        self.designSurfaces = ["ALL_OPENFOAM_WALL_PATCHES"]
 
-        ## Fluid-structure interatcion (FSI) options. This dictionary takes in the required values for
-        ## an FSI case to be used throughout the simulation.
-        self.fsi = {"pRef": 0.0, "propMovement": False}
+        ## MDO coupling information for aerostructural, aerothermal, or aeroacoustic optimization.
+        ## We can have ONLY one coupling scenario active, e.g., aerostructural and aerothermal can't be
+        ## both active. We can have more than one couplingSurfaceGroups, e.g., wingGroup and tailGroup
+        ## or blade1Group, blade2Group, and blade3Group. Each group subdict can have multiple patches.
+        ## These patches should be consistent with the patch names defined in constant/polyMesh/boundary
+        self.couplingInfo = {
+            "aerostructural": {
+                "active": False,
+                "pRef": 0,
+                "propMovement": False,
+                "couplingSurfaceGroups": {
+                    "wingGroup": ["wing", "wing_te"],
+                },
+            },
+            "aerothermal": {
+                "active": False,
+                "couplingSurfaceGroups": {
+                    "wallGroup": ["fin_wall"],
+                },
+            },
+            "aeroacoustic": {
+                "active": False,
+                "pRef": 0,
+                "couplingSurfaceGroups": {
+                    "blade1Group": ["blade1_ps", "blade1_ss"],
+                    "blade2Group": ["blade2"],
+                },
+            },
+        }
 
         ## Aero-propulsive options
         self.aeroPropulsive = {}
@@ -372,7 +387,7 @@ class DAOPTION(object):
         ## },
         self.fvSource = {}
 
-        ## The adjoint equation solution method. Options are: Krylov, fixedPoint, or fixedPointC
+        ## The adjoint equation solution method. Options are: Krylov or fixedPoint
         self.adjEqnSolMethod = "Krylov"
 
         ## The variable upper and lower bounds for primal solution. The key is variable+"Max/Min".
@@ -411,6 +426,10 @@ class DAOPTION(object):
             "gammaIntMin": 1e-16,
         }
 
+        ## The discipline name. The default is "aero". If we need to couple two solvers using
+        ## DAFoam, e.g., aero+thermal, we need to set it to something like "thermal"
+        self.discipline = "aero"
+
         ## Whether to perform multipoint optimization.
         self.multiPoint = False
 
@@ -448,7 +467,7 @@ class DAOPTION(object):
         ## This obviously increses the speed because the dRdWTPC computation takes about 30% of
         ## the adjoint total runtime. However, setting a too large lag value will decreases the speed
         ## of solving the adjoint equations. One needs to balance these factors
-        self.adjPCLag = 10
+        self.adjPCLag = 10000
 
         ## Whether to use AD: Mode options: forward, reverse, or fd. If forward mode AD is used
         ## the seedIndex will be set to compute derivative by running the whole primal solver.
@@ -466,11 +485,6 @@ class DAOPTION(object):
         # *********************************************************************************************
         # ************************************ Advance Options ****************************************
         # *********************************************************************************************
-
-        ## The root directory for the DAFoam case. If rooDir = "None" (default), we will assign os.getcwd() to rootDir
-        ## If we want to have multiple cases running at the same time, e.g., coupled wing propeller case, we may
-        ## set different rootDirs for each case. NOTE: if we set rootDir, we need to set an absolute path!
-        self.rootDir = "None"
 
         ## The run status which can be solvePrimal, solveAdjoint, or calcTotalDeriv. This parameter is
         ## used internally, so users should never change this option in the Python layer.
@@ -524,6 +538,10 @@ class DAOPTION(object):
             "useMGSO": False,
             "printInfo": 1,
             "fpMaxIters": 1000,
+            "fpRelTol": 1e-6,
+            "fpMinResTolDiff": 1.0e2,
+            "fpPCUpwind": False,
+            "dynAdjustTol": True,
         }
 
         ## Normalization for residuals. We should normalize all residuals!
@@ -583,9 +601,6 @@ class DAOPTION(object):
         ## Default name for the mesh surface family. Users typically don't need to change
         self.meshSurfaceFamily = "None"
 
-        ## Default name for the design surface family. Users typically don't need to change
-        self.designSurfaceFamily = "designSurfaces"
-
         ## The threshold for check mesh call
         self.checkMeshThreshold = {
             "maxAspectRatio": 1000.0,
@@ -625,8 +640,21 @@ class DAOPTION(object):
         ## or updating the PC mat. To enable this option, set "active" to True.
         self.runLowOrderPrimal4PC = {"active": False}
 
-        ## Parameters for wing-propeller coupling optimizations
-        self.wingProp = {"nForceSections": 10, "axis": [1.0, 0.0, 0.0]}
+        ## Parameters for wing-propeller coupling optimizations. We can add multiple propellers
+        self.wingProp = {
+            "test_propeller_default": {
+                "active": False,
+                "nForceSections": 10,
+                "axis": [1.0, 0.0, 0.0],
+                "actEps": 0.02,
+                "rotDir": "right",
+                "interpScheme": "Poly4Gauss",
+            },
+        }
+
+        ## number of minimal primal iterations. The primal has to run this many iterations, even the primal residual
+        ## has reduced below the tolerance. The default is a negative value (always satisfied).
+        self.primalMinIters = -1
 
 
 class PYDAFOAM(object):
@@ -666,18 +694,11 @@ class PYDAFOAM(object):
         # initialize options for adjoints
         self._initializeOptions(options)
 
-        # check if the combination of options is valid.
-        self._checkOptions()
-
         # initialize comm for parallel communication
         self._initializeComm(comm)
 
-        # the absolute path where the run script is located at
-        if self.getOption("rootDir") == "None":
-            self.rootDir = os.getcwd()
-        else:
-            self.rootDir = self.getOption("rootDir")
-        self.cdRoot()
+        # check if the combination of options is valid.
+        self._checkOptions()
 
         # Initialize families
         self.families = OrderedDict()
@@ -735,26 +756,42 @@ class PYDAFOAM(object):
         self._computeBasicFamilyInfo()
 
         # Add a couple of special families.
-        self.allFamilies = "allSurfaces"
-        self.addFamilyGroup(self.allFamilies, self.basicFamilies)
+        self.allSurfacesGroup = "allSurfaces"
+        self.addFamilyGroup(self.allSurfacesGroup, self.basicFamilies)
 
         self.allWallsGroup = "allWalls"
         self.addFamilyGroup(self.allWallsGroup, self.wallList)
 
-        # Set the design families if given, otherwise default to all
-        # walls
-        self.designFamilyGroup = self.getOption("designSurfaceFamily")
-        if self.designFamilyGroup == "None":
-            self.designFamilyGroup = self.allWallsGroup
+        # Set the design surfaces group
+        self.designSurfacesGroup = "designSurfaces"
+        if "ALL_OPENFOAM_WALL_PATCHES" in self.getOption("designSurfaces"):
+            self.addFamilyGroup(self.designSurfacesGroup, self.wallList)
+        else:
+            self.addFamilyGroup(self.designSurfacesGroup, self.getOption("designSurfaces"))
 
-        # Set the mesh families if given, otherwise default to all
-        # walls
-        self.meshFamilyGroup = self.getOption("meshSurfaceFamily")
-        if self.meshFamilyGroup == "None":
-            self.meshFamilyGroup = self.allWallsGroup
+        # Set the couplingSurfacesGroup if any of the MDO scenario is active
+        # otherwise, set the couplingSurfacesGroup to designSurfacesGroup
+        # NOTE: the treatment of aeroacoustic is different because it supports more than
+        # one couplingSurfaceGroups. For other scenarios, only one couplingSurfaceGroup
+        # can be defined. TODO. we need to make them consistent in the future..
+        couplingInfo = self.getOption("couplingInfo")
+        self.couplingSurfacesGroup = self.designSurfacesGroup
+        if couplingInfo["aerostructural"]["active"]:
+            # we support only one aerostructural surfaceGroup for now
+            self.couplingSurfacesGroup = list(couplingInfo["aerostructural"]["couplingSurfaceGroups"].keys())[0]
+            patchNames = couplingInfo["aerostructural"]["couplingSurfaceGroups"][self.couplingSurfacesGroup]
+            self.addFamilyGroup(self.couplingSurfacesGroup, patchNames)
+        elif couplingInfo["aeroacoustic"]["active"]:
+            for groupName in couplingInfo["aeroacoustic"]["couplingSurfaceGroups"]:
+                self.addFamilyGroup(groupName, couplingInfo["aeroacoustic"]["couplingSurfaceGroups"][groupName])
+        elif couplingInfo["aerothermal"]["active"]:
+            # we support only one aerothermal coupling surfaceGroup for now
+            self.couplingSurfacesGroup = list(couplingInfo["aerothermal"]["couplingSurfaceGroups"].keys())[0]
+            patchNames = couplingInfo["aerothermal"]["couplingSurfaceGroups"][self.couplingSurfacesGroup]
+            self.addFamilyGroup(self.couplingSurfacesGroup, patchNames)
 
-        # get the surface coordinate of allFamilies
-        self.xs0 = self.getSurfaceCoordinates(self.allFamilies)
+        # get the surface coordinate of allSurfacesGroup
+        self.xs0 = self.getSurfaceCoordinates(self.allSurfacesGroup)
 
         # By Default we don't have an external mesh object or a
         # geometric manipulation object
@@ -815,14 +852,12 @@ class PYDAFOAM(object):
         # update the mesh coordinates if DVGeo is set
         # add point set and update the mesh based on the DV values
 
-        self.cdRoot()
-
         if self.DVGeo is not None:
 
             # if the point set is not in DVGeo add it first
             if self.ptSetName not in self.DVGeo.points:
 
-                xs0 = self.mapVector(self.xs0, self.allFamilies, self.designFamilyGroup)
+                xs0 = self.mapVector(self.xs0, self.allSurfacesGroup, self.designSurfacesGroup)
 
                 self.DVGeo.addPointSet(xs0, self.ptSetName)
                 self.pointsSet = True
@@ -838,7 +873,7 @@ class PYDAFOAM(object):
                 if self.surfGeoDisp is not None:
                     xs += self.surfGeoDisp
 
-                self.setSurfaceCoordinates(xs, self.designFamilyGroup)
+                self.setSurfaceCoordinates(xs, self.designSurfacesGroup)
                 Info("DVGeo PointSet UpToDate: " + str(self.DVGeo.pointSetUpToDate(self.ptSetName)))
 
                 # warp the mesh to get the new volume coordinates
@@ -1039,6 +1074,39 @@ class PYDAFOAM(object):
 
         if self.getOption("runLowOrderPrimal4PC")["active"]:
             self.setOption("runLowOrderPrimal4PC", {"active": True, "isPC": False})
+
+        if self.getOption("adjEqnSolMethod") == "fixedPoint":
+            # for the fixed-point adjoint, we should not normalize the states and residuals
+            if self.comm.rank == 0:
+                print("Fixed-point adjoint mode detected. Unset normalizeStates and normalizeResiduals...")
+
+            # force the normalize states to be an empty dict
+            if len(self.getOption("normalizeStates")) > 0:
+                raise Error("Please do not set any normalizeStates for the fixed-point adjoint!")
+            # force the normalize residuals to be None; don't normalize any residuals
+            self.setOption("normalizeResiduals", ["None"])
+
+        if self.getOption("discipline") not in ["aero", "thermal"]:
+            raise Error("discipline: %s not supported. Options are: aero or thermal" % self.getOption("discipline"))
+
+        nActivated = 0
+        for coupling in self.getOption("couplingInfo"):
+            if self.getOption("couplingInfo")[coupling]["active"]:
+                nActivated += 1
+        if nActivated > 1:
+            raise Error("Only one coupling scenario can be active, while %i found" % nActivated)
+
+        nAerothermalSurfaces = len(self.getOption("couplingInfo")["aerothermal"]["couplingSurfaceGroups"].keys())
+        if nAerothermalSurfaces > 1:
+            raise Error(
+                "Only one couplingSurfaceGroups is supported for aerothermal, while %i found" % nAerothermalSurfaces
+            )
+
+        nAeroStructSurfaces = len(self.getOption("couplingInfo")["aerostructural"]["couplingSurfaceGroups"].keys())
+        if nAeroStructSurfaces > 1:
+            raise Error(
+                "Only one couplingSurfaceGroups is supported for aerostructural, while %i found" % nAeroStructSurfaces
+            )
 
         # check other combinations...
 
@@ -1424,8 +1492,8 @@ class PYDAFOAM(object):
         self.mesh.setExternalMeshIndices(meshInd)
 
         # Set the surface the user has supplied:
-        conn, faceSizes = self.getSurfaceConnectivity(self.meshFamilyGroup)
-        pts = self.getSurfaceCoordinates(self.meshFamilyGroup)
+        conn, faceSizes = self.getSurfaceConnectivity(self.allWallsGroup)
+        pts = self.getSurfaceCoordinates(self.allWallsGroup)
         self.mesh.setSurfaceDefinition(pts, conn, faceSizes)
 
     def setEvalFuncs(self, evalFuncs):
@@ -1656,9 +1724,7 @@ class PYDAFOAM(object):
             The Petsc vector that contains the sensitivity
         """
 
-        self.cdRoot()
-
-        workingDir = self.rootDir
+        workingDir = os.getcwd()
         if self.parallel:
             sensDir = "processor%d/%.8f/" % (self.rank, solutionTime)
         else:
@@ -1727,15 +1793,13 @@ class PYDAFOAM(object):
         """
 
         dFdXs = self.mesh.getdXs()
-        dFdXs = self.mapVector(dFdXs, self.meshFamilyGroup, self.allWallsGroup)
+        dFdXs = self.mapVector(dFdXs, self.allWallsGroup, self.allWallsGroup)
 
         pts = self.getSurfaceCoordinates(self.allWallsGroup)
         conn, faceSizes = self.getSurfaceConnectivity(self.allWallsGroup)
         conn = np.array(conn).flatten()
 
-        self.cdRoot()
-
-        workingDir = self.rootDir
+        workingDir = os.getcwd()
         if self.parallel:
             meshDir = "processor%d/%.11f/polyMesh/" % (self.rank, solutionTime)
             sensDir = "processor%d/%.11f/" % (self.rank, solutionTime)
@@ -1942,8 +2006,6 @@ class PYDAFOAM(object):
         viewerW = PETSc.Viewer().createBinary("wVec_%03d.bin" % self.nSolveAdjoints, mode="w", comm=PETSc.COMM_WORLD)
         viewerW(self.wVec)
         """
-
-        self.cdRoot()
 
         if self.getOption("useAD")["mode"] == "forward":
             raise Error("solveAdjoint only supports useAD->mode=reverse|fd")
@@ -2253,7 +2315,7 @@ class PYDAFOAM(object):
             elif designVarDict[designVarName]["designVarType"] in ["ACTL", "ACTP", "ACTD"]:
                 if self.getOption("useAD")["mode"] == "fd":
                     designVarType = designVarDict[designVarName]["designVarType"]
-                    nDVTable = {"ACTP": 9, "ACTD": 9, "ACTL": 11}
+                    nDVTable = {"ACTP": 9, "ACTD": 10, "ACTL": 11}
                     nDVs = nDVTable[designVarType]
                     # calculate dRdACT
                     dRdACT = PETSc.Mat().create(PETSc.COMM_WORLD)
@@ -2293,7 +2355,7 @@ class PYDAFOAM(object):
                     dRdACT.destroy()
                 elif self.getOption("useAD")["mode"] == "reverse":
                     designVarType = designVarDict[designVarName]["designVarType"]
-                    nDVTable = {"ACTP": 9, "ACTD": 9, "ACTL": 11}
+                    nDVTable = {"ACTP": 9, "ACTD": 10, "ACTL": 11}
                     nDVs = nDVTable[designVarType]
                     # loop over all objectives
                     for objFuncName in objFuncDict:
@@ -2430,7 +2492,7 @@ class PYDAFOAM(object):
 
         self.mesh.warpDeriv(dFdXvTotalArray)
         dFdXs = self.mesh.getdXs()
-        dFdXs = self.mapVector(dFdXs, self.meshFamilyGroup, self.designFamilyGroup)
+        dFdXs = self.mapVector(dFdXs, self.allWallsGroup, self.designSurfacesGroup)
         dFdFFD = self.DVGeo.totalSensitivity(dFdXs, ptSetName=self.ptSetName, comm=self.comm)
 
         return dFdFFD
@@ -2444,7 +2506,7 @@ class PYDAFOAM(object):
             Group identifier to get only forces cooresponding to the
             desired group. The group must be a family or a user-supplied
             group of families. The default is None which corresponds to
-            all wall-type surfaces.
+            design surfaces.
 
         Returns
         -------
@@ -2455,13 +2517,8 @@ class PYDAFOAM(object):
         Info("Computing surface forces")
         # Calculate number of surface points
         if groupName is None:
-            groupName = self.designFamilyGroup
+            groupName = self.couplingSurfacesGroup
         nPts, _ = self._getSurfaceSize(groupName)
-
-        # Initialize PETSc vectors
-        pointListTemp = PETSc.Vec().create(comm=PETSc.COMM_WORLD)
-        pointListTemp.setSizes((nPts, PETSc.DECIDE), bsize=1)
-        pointListTemp.setFromOptions()
 
         fX = PETSc.Vec().create(comm=PETSc.COMM_WORLD)
         fX.setSizes((nPts, PETSc.DECIDE), bsize=1)
@@ -2476,7 +2533,7 @@ class PYDAFOAM(object):
         fZ.setFromOptions()
 
         # Compute forces
-        self.solver.getForces(fX, fY, fZ, pointListTemp)
+        self.solver.getForces(fX, fY, fZ)
 
         # Copy data from PETSc vectors
         forces = np.zeros((nPts, 3))
@@ -2484,14 +2541,10 @@ class PYDAFOAM(object):
         forces[:, 1] = np.copy(fY.getArray())
         forces[:, 2] = np.copy(fZ.getArray())
 
-        # comment out this var since it is not used.
-        # pointList = np.copy(pointListTemp.getArray())
-
         # Cleanup PETSc vectors
         fX.destroy()
         fY.destroy()
         fZ.destroy()
-        pointListTemp.destroy()
 
         # Print total force
         fXSum = np.sum(forces[:, 0])
@@ -2509,6 +2562,112 @@ class PYDAFOAM(object):
 
         # Finally map the vector as required.
         return forces
+
+    def getAcousticData(self, groupName=None):
+        """
+        Return the acoustic data on this processor.
+        Parameters
+        ----------
+        groupName : str
+            Group identifier to get only data cooresponding to the
+            desired group. The group must be a family or a user-supplied
+            group of families. The default is None which corresponds to
+            design surfaces.
+
+        Returns
+        -------
+        position : array (N,3)
+            Face positions on this processor. Note that N may be 0, and an
+            empty array of shape (0, 3) can be returned.
+        normal : array (N,3)
+            Face normals on this processor. Note that N may be 0, and an
+            empty array of shape (0, 3) can be returned.
+        area : array (N)
+            Face areas on this processor. Note that N may be 0, and an
+            empty array of shape (0) can be returned.
+        forces : array (N,3)
+            Face forces on this processor. Note that N may be 0, and an
+            empty array of shape (0, 3) can be returned.
+        """
+        Info("Computing surface acoustic data")
+        # Calculate number of surface cells
+        if groupName is None:
+            raise ValueError("Aeroacoustic grouName not set!")
+        _, nCls = self._getSurfaceSize(groupName)
+
+        x = PETSc.Vec().create(comm=PETSc.COMM_WORLD)
+        x.setSizes((nCls, PETSc.DECIDE), bsize=1)
+        x.setFromOptions()
+
+        y = PETSc.Vec().create(comm=PETSc.COMM_WORLD)
+        y.setSizes((nCls, PETSc.DECIDE), bsize=1)
+        y.setFromOptions()
+
+        z = PETSc.Vec().create(comm=PETSc.COMM_WORLD)
+        z.setSizes((nCls, PETSc.DECIDE), bsize=1)
+        z.setFromOptions()
+
+        nX = PETSc.Vec().create(comm=PETSc.COMM_WORLD)
+        nX.setSizes((nCls, PETSc.DECIDE), bsize=1)
+        nX.setFromOptions()
+
+        nY = PETSc.Vec().create(comm=PETSc.COMM_WORLD)
+        nY.setSizes((nCls, PETSc.DECIDE), bsize=1)
+        nY.setFromOptions()
+
+        nZ = PETSc.Vec().create(comm=PETSc.COMM_WORLD)
+        nZ.setSizes((nCls, PETSc.DECIDE), bsize=1)
+        nZ.setFromOptions()
+
+        a = PETSc.Vec().create(comm=PETSc.COMM_WORLD)
+        a.setSizes((nCls, PETSc.DECIDE), bsize=1)
+        a.setFromOptions()
+
+        fX = PETSc.Vec().create(comm=PETSc.COMM_WORLD)
+        fX.setSizes((nCls, PETSc.DECIDE), bsize=1)
+        fX.setFromOptions()
+
+        fY = PETSc.Vec().create(comm=PETSc.COMM_WORLD)
+        fY.setSizes((nCls, PETSc.DECIDE), bsize=1)
+        fY.setFromOptions()
+
+        fZ = PETSc.Vec().create(comm=PETSc.COMM_WORLD)
+        fZ.setSizes((nCls, PETSc.DECIDE), bsize=1)
+        fZ.setFromOptions()
+
+        # Compute forces
+        self.solver.getAcousticData(x, y, z, nX, nY, nZ, a, fX, fY, fZ, groupName.encode())
+
+        # Copy data from PETSc vectors
+        positions = np.zeros((nCls, 3))
+        positions[:, 0] = np.copy(x.getArray())
+        positions[:, 1] = np.copy(y.getArray())
+        positions[:, 2] = np.copy(z.getArray())
+        normals = np.zeros((nCls, 3))
+        normals[:, 0] = np.copy(nX.getArray())
+        normals[:, 1] = np.copy(nY.getArray())
+        normals[:, 2] = np.copy(nZ.getArray())
+        areas = np.zeros(nCls)
+        areas[:] = np.copy(a.getArray())
+        forces = np.zeros((nCls, 3))
+        forces[:, 0] = np.copy(fX.getArray())
+        forces[:, 1] = np.copy(fY.getArray())
+        forces[:, 2] = np.copy(fZ.getArray())
+
+        # Cleanup PETSc vectors
+        x.destroy()
+        y.destroy()
+        z.destroy()
+        nX.destroy()
+        nY.destroy()
+        nZ.destroy()
+        a.destroy()
+        fX.destroy()
+        fY.destroy()
+        fZ.destroy()
+
+        # Finally map the vector as required.
+        return positions, normals, areas, forces
 
     def calcTotalDeriv(self, dRdX, dFdX, psi, totalDeriv):
         """
@@ -2669,8 +2828,6 @@ class PYDAFOAM(object):
         Info("|                       Running Coloring Solver                            |")
         Info("+--------------------------------------------------------------------------+")
 
-        self.cdRoot()
-
         solverName = self.getOption("solverName")
         if solverName in self.solverRegistry["Incompressible"]:
 
@@ -2726,8 +2883,7 @@ class PYDAFOAM(object):
 
         solTime = self.solver.getPrevPrimalSolTime()
 
-        self.cdRoot()
-        rootDir = self.rootDir
+        rootDir = os.getcwd()
         if self.parallel:
             checkPath = os.path.join(rootDir, "processor%d/%g" % (self.comm.rank, solTime))
         else:
@@ -2760,8 +2916,7 @@ class PYDAFOAM(object):
         """
 
         allSolutions = []
-        self.cdRoot()
-        rootDir = self.rootDir
+        rootDir = os.getcwd()
         if self.parallel:
             checkPath = os.path.join(rootDir, "processor%d" % self.comm.rank)
         else:
@@ -2829,7 +2984,7 @@ class PYDAFOAM(object):
 
         # get the original surf coords
         xSDot0 = np.zeros_like(self.xs0, self.dtype)
-        xSDot0 = self.mapVector(xSDot0, self.allFamilies, self.designFamilyGroup)
+        xSDot0 = self.mapVector(xSDot0, self.allSurfacesGroup, self.designSurfacesGroup)
 
         # get xSDot
         xSDot = self.DVGeo.totalSensitivityProd(xDvDot, ptSetName=self.ptSetName).reshape(xSDot0.shape)
@@ -2930,14 +3085,14 @@ class PYDAFOAM(object):
         # update the CFD Coordinates
         if self.DVGeo is not None:
             if self.ptSetName not in self.DVGeo.points:
-                xs0 = self.mapVector(self.xs0, self.allFamilies, self.designFamilyGroup)
+                xs0 = self.mapVector(self.xs0, self.allSurfacesGroup, self.designSurfacesGroup)
                 self.DVGeo.addPointSet(xs0, self.ptSetName)
                 self.pointsSet = True
 
             # set the surface coords
             if not self.DVGeo.pointSetUpToDate(self.ptSetName):
                 coords = self.DVGeo.update(self.ptSetName, config=None)
-                self.setSurfaceCoordinates(coords, self.designFamilyGroup)
+                self.setSurfaceCoordinates(coords, self.designSurfacesGroup)
 
             # warp the mesh
             self.mesh.warpMesh()
@@ -2949,8 +3104,7 @@ class PYDAFOAM(object):
         Initialize mesh information and read mesh information
         """
 
-        self.cdRoot()
-        dirName = self.rootDir
+        dirName = os.getcwd()
 
         self.fileNames, self.xv0, self.faces, self.boundaries, self.owners, self.neighbours = self._readOFGrid(dirName)
         self.xv = copy.copy(self.xv0)
@@ -2981,8 +3135,8 @@ class PYDAFOAM(object):
         # First get the surface coordinates of the meshFamily in case
         # the groupName is a subset, those values will remain unchanged.
 
-        meshSurfCoords = self.getSurfaceCoordinates(self.meshFamilyGroup)
-        meshSurfCoords = self.mapVector(coordinates, groupName, self.meshFamilyGroup, meshSurfCoords)
+        meshSurfCoords = self.getSurfaceCoordinates(self.allWallsGroup)
+        meshSurfCoords = self.mapVector(coordinates, groupName, self.allWallsGroup, meshSurfCoords)
 
         self.mesh.setSurfaceCoordinates(meshSurfCoords)
 
@@ -3028,7 +3182,7 @@ class PYDAFOAM(object):
         does *NOT* set the actual family group
         """
         if groupName is None:
-            groupName = self.allFamilies
+            groupName = self.allSurfacesGroup
 
         if groupName not in self.families:
             raise Error(
@@ -3233,7 +3387,7 @@ class PYDAFOAM(object):
         vec1counter = 0
         vec2counter = 0
 
-        for ind in self.families[self.allFamilies]:
+        for ind in self.families[self.allSurfacesGroup]:
             npts, ncell = self._getSurfaceSize(self.basicFamilies[ind])
 
             if ind in famList1 and ind in famList2:
@@ -3527,6 +3681,29 @@ class PYDAFOAM(object):
         """
 
         self.solver.setFieldValue4GlobalCellI(fieldName, val, globalCellI, compI)
+        if self.getOption("useAD")["mode"] in ["forward", "reverse"]:
+            self.solverAD.setFieldValue4GlobalCellI(fieldName, val, globalCellI, compI)
+
+    def setFieldValue4LocalCellI(self, fieldName, val, localCellI, compI=0):
+        """
+        Set the field value based on the local cellI.
+
+        Parameters
+        ----------
+        fieldName : str
+           Name of the flow field to set, e.g., U, p, nuTilda
+        val : float
+           The value to set
+        localCellI : int
+           The global cell index to set the value
+        compI : int
+           The component index to set the value (for vectorField only)
+
+        """
+
+        self.solver.setFieldValue4LocalCellI(fieldName, val, localCellI, compI)
+        if self.getOption("useAD")["mode"] in ["forward", "reverse"]:
+            self.solverAD.setFieldValue4LocalCellI(fieldName, val, localCellI, compI)
 
     def updateBoundaryConditions(self, fieldName, fieldType):
         """
@@ -3542,6 +3719,8 @@ class PYDAFOAM(object):
         """
 
         self.solver.updateBoundaryConditions(fieldName, fieldType)
+        if self.getOption("useAD")["mode"] in ["forward", "reverse"]:
+            self.solverAD.updateBoundaryConditions(fieldName, fieldType)
 
     def getOption(self, name):
         """
@@ -3747,12 +3926,6 @@ class PYDAFOAM(object):
             array1[i] = vec[i]
         return array1
 
-    def cdRoot(self):
-        """
-        Go to the case root dir, as set in self.rootDir
-        """
-        os.chdir(self.rootDir)
-
     def _printCurrentOptions(self):
         """
         Prints a nicely formatted dictionary of all the current solver
@@ -3775,7 +3948,6 @@ class PYDAFOAM(object):
         change these. The strings for these options are placed in a set
         """
 
-        # return ("meshSurfaceFamily", "designSurfaceFamily")
         return ()
 
     def _writeDecomposeParDict(self):
@@ -3784,8 +3956,8 @@ class PYDAFOAM(object):
         """
         if self.comm.rank == 0:
             # Open the options file for writing
-            self.cdRoot()
-            workingDirectory = self.rootDir
+
+            workingDirectory = os.getcwd()
             sysDir = "system"
             varDir = os.path.join(workingDirectory, sysDir)
             fileName = "decomposeParDict"

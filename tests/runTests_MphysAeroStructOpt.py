@@ -45,15 +45,23 @@ tMin = 0.002
 tMax = 0.05
 
 daOptions = {
-    "designSurfaces": ["wing"],
+    "designSurfaces": ["wing", "wing_te"],
     "solverName": "DARhoSimpleFoam",
-    "fsi": {
-        "pRef": p0,
-        "propMovement": True,
-        "fvSource": {
-            "disk1": {
-                "nNodes": 4,
-                "radialLoc": 0.1,
+    "couplingInfo": {
+        "aerostructural": {
+            "active": True,
+            "pRef": p0,
+            "propMovement": True,
+            "fvSource": {
+                "disk1": {
+                    "nNodes": 4,
+                    "radialLoc": 0.1,
+                },
+            },
+            # the groupling surface group can be different 
+            # from the design surfaces
+            "couplingSurfaceGroups": {
+                "wingGroup": ["wing", "wing_te"],
             },
         },
     },
@@ -99,7 +107,7 @@ daOptions = {
             "part1": {
                 "type": "force",
                 "source": "patchToFace",
-                "patches": ["wing"],
+                "patches": ["wing", "wing_te"],
                 "directionMode": "fixedDirection",
                 "direction": [1.0, 0.0, 0.0],
                 "scale": 1.0 / (0.5 * U0 * U0 * A0 * rho0),
@@ -110,7 +118,7 @@ daOptions = {
             "part1": {
                 "type": "force",
                 "source": "patchToFace",
-                "patches": ["wing"],
+                "patches": ["wing", "wing_te"],
                 "directionMode": "fixedDirection",
                 "direction": [0.0, 1.0, 0.0],
                 "scale": 1.0 / (0.5 * U0 * U0 * A0 * rho0),
@@ -143,7 +151,7 @@ daOptions = {
         "shape": {"designVarType": "FFD"},
         "actuator_disk1": {"designVarType": "ACTD", "actuatorName": "disk1"},
     },
-    "adjPCLag": 1,
+    #"adjPCLag": 1,
 }
 
 meshOptions = {
@@ -201,7 +209,7 @@ class Top(Multipoint):
         dvs = self.add_subsystem("dvs", om.IndepVarComp(), promotes=["*"])
 
         # add the geometry component, we dont need a builder because we do it here.
-        self.add_subsystem("geometry", OM_DVGEOCOMP(ffd_file="./FFD/parentFFD.xyz"))
+        self.add_subsystem("geometry", OM_DVGEOCOMP(file="./FFD/parentFFD.xyz", type="ffd"))
 
         # add the coupling solvers
         nonlinear_solver = om.NonlinearBlockGS(maxiter=25, iprint=2, use_aitken=True, rtol=1e-8, atol=1e-8)
@@ -241,7 +249,7 @@ class Top(Multipoint):
         self.geometry.nom_setConstraintSurface(tri_points)
 
         # geometry setup
-        self.geometry.nom_addChild(ffd_file="./FFD/wingFFD.xyz")
+        self.geometry.nom_addChild("./FFD/wingFFD.xyz")
         # Create reference axis
         nRefAxPts = self.geometry.nom_addRefAxis(name="wingAxis", xFraction=0.25, alignIndex="k", childIdx=0)
 
@@ -267,6 +275,7 @@ class Top(Multipoint):
             actPOD = float(val[6])
             actExpM = float(val[7])
             actExpN = float(val[8])
+            T = float(val[9])
             DASolver.setOption(
                 "fvSource",
                 {
@@ -278,6 +287,7 @@ class Top(Multipoint):
                         "POD": actPOD,
                         "expM": actExpM,
                         "expN": actExpN,
+                        "targetThrust": T,
                     },
                 },
             )
@@ -297,11 +307,11 @@ class Top(Multipoint):
         # add dvs to ivc and connect
         self.dvs.add_output("twist", val=np.array([aoa0] * (nRefAxPts - 1)))
         self.dvs.add_output("shape", val=np.array([0] * nShapes))
-        self.dvs.add_output("actuator", val=np.array([7.0, 0.0, 14.0, 0.1, 1.0, 1.0, 0.0, 1.0, 0.5]))
+        self.dvs.add_output("actuator", val=np.array([7.0, 0.0, 14.0, 0.1, 1.0, 1.0, 0.0, 1.0, 0.5, 2000.0]))
         self.connect("twist", "geometry.twist")
         self.connect("shape", "geometry.shape")
-        self.connect("actuator", "cruise.dv_actuator_disk1", src_indices=[3,4,5,6,7,8])
-        self.connect("actuator", "cruise.x_prop0_disk1", src_indices=[0,1,2])
+        self.connect("actuator", "cruise.dv_actuator_disk1", src_indices=[3, 4, 5, 6, 7, 8, 9])
+        self.connect("actuator", "cruise.x_prop0_disk1", src_indices=[0, 1, 2])
 
         # define the design variables
         self.add_design_var("twist", lower=-10.0, upper=10.0, scaler=1.0)
@@ -314,6 +324,8 @@ class Top(Multipoint):
         self.add_constraint("geometry.volcon", lower=1.0, scaler=1.0)
         self.add_constraint("geometry.tecon", equals=0.0, scaler=1.0, linear=True)
         self.add_constraint("geometry.lecon", equals=0.0, scaler=1.0, linear=True)
+        # stress constraint
+        self.add_constraint("cruise.ks_vmfailure", lower=0.0, upper=0.41, scaler=1.0)
 
 
 prob = om.Problem()
@@ -355,10 +367,14 @@ finalObj = case.get_objectives()
 finalCon = case.get_constraints()
 
 finalCL = {}
+finalVM = {}
 for key in finalCon.keys():
     if "CL" in key:
         finalCL[key] = finalCon[key]
+    if "ks_vmfailure" in key:
+        finalVM[key] = finalCon[key]
 
 if gcomm.rank == 0:
     reg_write_dict(finalObj, 1e-6, 1e-8)
     reg_write_dict(finalCL, 1e-6, 1e-8)
+    reg_write_dict(finalVM, 1e-6, 1e-8)

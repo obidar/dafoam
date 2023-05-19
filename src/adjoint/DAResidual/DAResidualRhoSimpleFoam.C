@@ -69,6 +69,14 @@ DAResidualRhoSimpleFoam::DAResidualRhoSimpleFoam(
         Info << "molWeight " << molWeight_ << endl;
         Info << "Cp " << Cp_ << endl;
     }
+
+    // this is just a dummy call because we need to run the constrain once 
+    // to initialize fvOptions, before we can use it. Otherwise, we may get
+    // a seg fault when we call fvOptions_.correct(U_) in updateIntermediateVars
+    fvVectorMatrix UEqn(
+        fvm::div(phi_, U_)
+        - fvOptions_(rho_, U_));
+    fvOptions_.constrain(UEqn);
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -147,10 +155,7 @@ void DAResidualRhoSimpleFoam::calcResiduals(const dictionary& options)
     // copied and modified from EEqn.H
     volScalarField alphaEff("alphaEff", thermo_.alphaEff(alphat_));
 
-    if (hasFvSource_)
-    {
-        fvSourceEnergy_ = fvSource_ & U_;
-    }
+    fvSourceEnergy_ = fvSource_ & U_;
 
     fvScalarMatrix EEqn(
         fvm::div(phi_, he_, divHEScheme)
@@ -283,6 +288,7 @@ void DAResidualRhoSimpleFoam::updateIntermediateVariables()
     // NOTE: alphat is updated in the correctNut function in DATurbulenceModel child classes
 
     MRF_.correctBoundaryVelocity(U_);
+    fvOptions_.correct(U_);
 }
 
 void DAResidualRhoSimpleFoam::correctBoundaryConditions()

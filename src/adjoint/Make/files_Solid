@@ -22,6 +22,8 @@ DAObjFunc/DAObjFuncVonMisesStressKS.C
 DAObjFunc/DAObjFuncMass.C
 DAObjFunc/DAObjFuncVariableVolSum.C
 DAObjFunc/DAObjFuncMeshQualityKS.C
+DAObjFunc/DAObjFuncWallHeatFlux.C
+DAObjFunc/DAObjFuncPatchMean.C
 
 DAFvSource/DAFvSource.C
 

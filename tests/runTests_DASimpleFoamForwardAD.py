@@ -132,6 +132,7 @@ def actuator(val, geo):
     actPOD = float(val[6])
     actExpM = float(val[7])
     actExpN = float(val[8])
+    T = float(val[9])
     DASolver.setOption(
         "fvSource",
         {
@@ -149,7 +150,7 @@ def actuator(val, geo):
                 "expM": actExpM,
                 "expN": actExpN,
                 "adjustThrust": 1,
-                "targetThrust": 0.2,
+                "targetThrust": T,
             },
         },
     )
@@ -181,7 +182,7 @@ daOptions["designVar"]["alpha"] = {"designVarType": "AOA", "patches": ["inout"],
 # Actuator
 DVGeo.addGlobalDV(
     "actuator",
-    value=[-0.5, 0.0, 0.05, 0.01, 0.4, 10.0, 0.8, 1.0, 0.5],
+    value=[-0.5, 0.0, 0.05, 0.01, 0.4, 10.0, 0.8, 1.0, 0.5, 0.2],
     func=actuator,
     lower=-100.0,
     upper=100.0,
@@ -199,7 +200,6 @@ daOptions["designVar"]["pbc"] = {"designVarType": "BC", "patches": ["inout"], "v
 DASolver = PYDAFOAM(options=daOptions, comm=gcomm)
 DASolver.setDVGeo(DVGeo)
 mesh = USMesh(options=meshOptions, comm=gcomm)
-DASolver.addFamilyGroup(DASolver.getOption("designSurfaceFamily"), DASolver.getOption("designSurfaces"))
 DASolver.printFamilyList()
 DASolver.setMesh(mesh)
 # set evalFuncs
@@ -209,7 +209,7 @@ DASolver.setEvalFuncs(evalFuncs)
 # DVCon
 DVCon = DVConstraints()
 DVCon.setDVGeo(DVGeo)
-[p0, v1, v2] = DASolver.getTriangulatedMeshSurface(groupName=DASolver.getOption("designSurfaceFamily"))
+[p0, v1, v2] = DASolver.getTriangulatedMeshSurface(groupName=DASolver.designSurfacesGroup)
 surf = [p0, v1, v2]
 DVCon.setSurface(surf)
 

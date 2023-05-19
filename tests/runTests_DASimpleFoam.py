@@ -40,7 +40,6 @@ LRef = 1.0
 # test incompressible solvers
 aeroOptions = {
     "solverName": "DASimpleFoam",
-    "designSurfaceFamily": "designSurface",
     "useAD": {"mode": "fd"},
     "designSurfaces": ["wing"],
     "primalMinResTol": 1e-12,
@@ -51,7 +50,7 @@ aeroOptions = {
         "k0": {"variable": "k", "patches": ["inout"], "value": [k0]},
         "omega0": {"variable": "omega", "patches": ["inout"], "value": [omega0]},
         "useWallFunction": False,
-        "transport:nu": 1.5e-5
+        "transport:nu": 1.5e-5,
     },
     "fvSource": {
         "disk1": {
@@ -68,6 +67,7 @@ aeroOptions = {
             "expM": 1.0,
             "expN": 0.5,
             "adjustThrust": 0,
+            "targetThrust": 1.0,
         },
     },
     "objFunc": {
@@ -114,6 +114,7 @@ aeroOptions = {
                 "varType": "vector",
                 "component": 0,
                 "isSquare": 0,
+                "divByTotalVol": 0,
                 "scale": 1.0,
                 "addToAdjoint": True,
             },
@@ -128,6 +129,7 @@ aeroOptions = {
                 "varType": "scalar",
                 "component": 0,
                 "isSquare": 1,
+                "divByTotalVol": 0,
                 "scale": 1.0,
                 "addToAdjoint": True,
             },
@@ -140,7 +142,7 @@ aeroOptions = {
     "designVar": {
         "shapey": {"designVarType": "FFD"},
         "alpha": {"designVarType": "AOA", "patches": ["inout"], "flowAxis": "x", "normalAxis": "y"},
-        "actuator": {"actuatorName": "disk1", "designVarType": "ACTD"},
+        "actuator": {"actuatorName": "disk1", "designVarType": "ACTD", "comps": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]},
     },
 }
 
@@ -177,6 +179,7 @@ def actuator(val, geo):
     actPOD = float(val[6])
     actExpM = float(val[7])
     actExpN = float(val[8])
+    T = float(val[9])
     DASolver.setOption(
         "fvSource",
         {
@@ -194,6 +197,7 @@ def actuator(val, geo):
                 "expM": actExpM,
                 "expN": actExpN,
                 "adjustThrust": 0,
+                "targetThrust": T,
             },
         },
     )
@@ -209,7 +213,7 @@ DVGeo.addGlobalDV("alpha", [alpha0], alpha, lower=-10.0, upper=10.0, scale=1.0)
 # actuator
 DVGeo.addGlobalDV(
     "actuator",
-    value=[-0.55, 0.0, 0.05, 0.01, 0.4, 100.0, 0.0, 1.0, 0.5],
+    value=[-0.55, 0.0, 0.05, 0.01, 0.4, 100.0, 0.0, 1.0, 0.5, 1.0],
     func=actuator,
     lower=-100.0,
     upper=100.0,
@@ -220,7 +224,6 @@ DVGeo.addGlobalDV(
 DASolver = PYDAFOAM(options=aeroOptions, comm=gcomm)
 DASolver.setDVGeo(DVGeo)
 mesh = USMesh(options=meshOptions, comm=gcomm)
-DASolver.addFamilyGroup(DASolver.getOption("designSurfaceFamily"), DASolver.getOption("designSurfaces"))
 DASolver.printFamilyList()
 DASolver.setMesh(mesh)
 # set evalFuncs
@@ -230,7 +233,7 @@ DASolver.setEvalFuncs(evalFuncs)
 # DVCon
 DVCon = DVConstraints()
 DVCon.setDVGeo(DVGeo)
-[p0, v1, v2] = DASolver.getTriangulatedMeshSurface(groupName=DASolver.getOption("designSurfaceFamily"))
+[p0, v1, v2] = DASolver.getTriangulatedMeshSurface(groupName=DASolver.designSurfacesGroup)
 surf = [p0, v1, v2]
 DVCon.setSurface(surf)
 
@@ -249,10 +252,12 @@ else:
     xDV = DVGeo.getValues()
     funcs = {}
     funcs, fail = optFuncs.calcObjFuncValues(xDV)
+    # test getForces
     forces = DASolver.getForces()
     fNorm = np.linalg.norm(forces.flatten())
     fNormSum = gcomm.allreduce(fNorm, op=MPI.SUM)
     funcs["forces"] = fNormSum
+    
     funcsSens = {}
     funcsSens, fail = optFuncs.calcObjFuncSens(xDV, funcs)
     if gcomm.rank == 0:
