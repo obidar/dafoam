@@ -63,6 +63,19 @@ protected:
     dimensionedScalar Cw3_;
     dimensionedScalar Cv1_;
     dimensionedScalar Cv2_;
+
+    /// inputs and outputs for the beta calculation
+    scalar* inputs_ = new scalar[mesh_.nCells() * 7];
+    scalar* outputs_ = new scalar[mesh_.nCells()];
+
+#ifdef CODI_AD_FORWARD
+    double* inputsDouble_ = new double[mesh_.nCells() * 9];
+    double* outputsDouble_ = new double[mesh_.nCells()];
+#endif
+
+    /// calculate the beta field using the trained model
+    void calcBetaField();
+
     //@}
 
     /// \name SA functions
@@ -117,6 +130,12 @@ public:
     //- Destructor
     virtual ~DASpalartAllmarasFv3FIML()
     {
+        delete[] inputs_;
+        delete[] outputs_;
+#ifdef CODI_AD_FORWARD
+        delete[] inputsDouble_;
+        delete[] outputsDouble_;
+#endif
     }
 
     // Member functions
@@ -150,6 +169,32 @@ public:
 
     /// return the value of the production term from the turbulence model 
     virtual void getTurbProdTerm(scalarList& prodTerm) const;
+
+#ifdef CODI_AD_REVERSE
+
+    /// these two functions are for AD external functions
+    static void betaCompute(
+        const double* x,
+        size_t n,
+        double* y,
+        size_t m,
+        codi::ExternalFunctionUserData* d)
+    {
+        DAUtility::pyCalcBetaInterface(x, n, y, m, DAUtility::pyCalcBeta);
+    }
+
+    static void betaJacVecProd(
+        const double* x,
+        double* x_b,
+        size_t n,
+        const double* y,
+        const double* y_b,
+        size_t m,
+        codi::ExternalFunctionUserData* d)
+    {
+        DAUtility::pyCalcBetaJacVecProdInterface(x, x_b, n, y, y_b, m, DAUtility::pyCalcBetaJacVecProd);
+    }
+#endifs
 };
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

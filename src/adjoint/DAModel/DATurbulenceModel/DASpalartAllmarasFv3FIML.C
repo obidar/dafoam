@@ -104,18 +104,26 @@ DASpalartAllmarasFv3FIML::DASpalartAllmarasFv3FIML(
               IOobject::NO_READ,
               IOobject::NO_WRITE),
           nuTildaRes_),
-      betaFieldInversion_(const_cast<volScalarField&>(
-          mesh.thisDb().lookupObject<volScalarField>("betaFieldInversion"))),
-      UData_(const_cast<volVectorField&>(
-          mesh.thisDb().lookupObject<volVectorField>("UData"))),
-      surfaceFriction_(const_cast<volScalarField&>(
-          mesh.thisDb().lookupObject<volScalarField>("surfaceFriction"))),
-      surfaceFrictionData_(const_cast<volScalarField&>(
-          mesh.thisDb().lookupObject<volScalarField>("surfaceFrictionData"))),
-      pData_(const_cast<volScalarField&>(
-          mesh.thisDb().lookupObject<volScalarField>("pData"))),
-      USingleComponentData_(const_cast<volScalarField&>(
-          mesh.thisDb().lookupObject<volScalarField>("USingleComponentData"))),
+      betaFieldInversion_(
+          IOobject(
+              "betaFieldInversion",
+              mesh.time().timeName(),
+              mesh_,
+              IOobject::READ_IF_PRESENT,
+              IOobject::AUTO_WRITE),
+          mesh_,
+          dimensionedScalar("betaFieldInversion", dimensionSet(0, 0, 0, 0, 0, 0, 0), 1.0),
+          zeroGradientFvPatchScalarField::typeName),
+      betaFieldInversionML_(
+          IOobject(
+              "betaFieldInversionML",
+              mesh.time().timeName(),
+              mesh_,
+              IOobject::NO_READ,
+              IOobject::AUTO_WRITE),
+          mesh_,
+          dimensionedScalar("betaFieldInversionML", dimensionSet(0, 0, 0, 0, 0, 0, 0), 1.0),
+          zeroGradientFvPatchScalarField::typeName),
       y_(mesh.thisDb().lookupObject<volScalarField>("yWall"))
 {
 
@@ -426,6 +434,104 @@ void DASpalartAllmarasFv3FIML::correct()
     solveTurbState_ = 0;
 }
 
+void DASpalartAllmarasFv3FIML::calcBetaField()
+{
+
+    // COMPUTE MACHINE LEARNING FEATURES
+    //////////////////////////Q-criterion//////////////////////////////////
+    volScalarField Ux_(U.component(vector::X));
+
+    volScalarField Uy_(U.component(vector::Y)); 
+    
+    volTensorField gradU(fvc::grad(U_));
+
+    volScalarField gradUxx_(gradU.component(tensor::XX));
+    
+    volScalarField gradUxy_(gradU.component(tensor::XY));
+
+    volScalarField gradUyx_(gradU.component(tensor::YX));
+    
+    volScalarField gradUyy_(gradU.component(tensor::YY));
+
+    volScalarField wallDist_(y_); 
+
+    label n = 7 * mesh_.nCells();
+    label m = mesh_.nCells();
+
+    forAll(mesh_.cells(), cI)
+    {
+        inputs_[cI * 7 + 0] = Ux_[cI];
+        inputs_[cI * 7 + 1] = Uy_[cI];
+        inputs_[cI * 7 + 2] = gradUxx_[cI];
+        inputs_[cI * 7 + 3] = gradUxy_[cI];
+        inputs_[cI * 7 + 4] = gradUyx_[cI];
+        inputs_[cI * 7 + 5] = gradUyy_[cI];
+        inputs_[cI * 7 + 6] = wallDist_[cI];
+    }
+
+    // NOTE: forward mode not supported..
+#if defined(CODI_AD_REVERSE)
+
+    // we need to use the external function helper from CoDiPack to propagate the AD
+
+    codi::ExternalFunctionHelper<codi::RealReverse> externalFunc;
+    for (label i = 0; i < mesh_.nCells() * 7; i++)
+    {
+        externalFunc.addInput(inputs_[i]);
+    }
+
+    for (label i = 0; i < mesh_.nCells(); i++)
+    {
+        externalFunc.addOutput(outputs_[i]);
+    }
+
+    externalFunc.callPrimalFunc(DASpalartAllmarasFv3FIML::betaCompute);
+
+    codi::RealReverse::Tape& tape = codi::RealReverse::getTape();
+
+    if (tape.isActive())
+    {
+        externalFunc.addToTape(DASpalartAllmarasFv3FIML::betaJacVecProd);
+    }
+
+    forAll(betaFieldInversionML_, cellI)
+    {
+        betaFieldInversionML_[cellI] = outputs_[cellI];
+    }
+
+#elif defined(CODI_AD_FORWARD)
+
+    for (label i = 0; i < n; i++)
+    {
+        inputsDouble_[i] = inputs_[i].value();
+    }
+
+    for (label i = 0; i < m; i++)
+    {
+        outputsDouble_[i] = outputs_[i].value();
+    }
+
+    // python callback function
+    DAUtility::pyCalcBetaInterface(inputsDouble_, n, outputsDouble_, m, DAUtility::pyCalcBeta);
+
+    forAll(betaFieldInversionML_, cellI)
+    {
+        betaFieldInversionML_[cellI] = outputsDouble_[cellI];
+    }
+
+#else
+
+    // python callback function
+    DAUtility::pyCalcBetaInterface(inputs_, n, outputs_, m, DAUtility::pyCalcBeta);
+
+    forAll(betaFieldInversionML_, cellI)
+    {
+        betaFieldInversionML_[cellI] = outputs_[cellI];
+    }
+
+#endif
+}
+
 void DASpalartAllmarasFv3FIML::calcResiduals(const dictionary& options)
 {
     /*
@@ -464,6 +570,8 @@ void DASpalartAllmarasFv3FIML::calcResiduals(const dictionary& options)
         }
     }
 
+    this->calcBetaField();
+
     const volScalarField chi(this->chi());
     const volScalarField fv1(this->fv1(chi));
 
@@ -476,7 +584,7 @@ void DASpalartAllmarasFv3FIML::calcResiduals(const dictionary& options)
             + fvm::div(phaseRhoPhi_, nuTilda_, divNuTildaScheme)
             - fvm::laplacian(phase_ * rho_ * DnuTildaEff(), nuTilda_)
             - Cb2_ / sigmaNut_ * phase_ * rho_ * magSqr(fvc::grad(nuTilda_))
-        == Cb1_ * phase_ * rho_ * Stilda * nuTilda_ * betaFieldInversion_
+        == Cb1_ * phase_ * rho_ * Stilda * nuTilda_ * betaFieldInversionML_
             - fvm::Sp(Cw1_ * phase_ * rho_ * fw(Stilda) * nuTilda_ / sqr(y_), nuTilda_));
 
     nuTildaEqn.ref().relax();
