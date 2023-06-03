@@ -440,9 +440,9 @@ void DASpalartAllmarasFv3FIML::calcBetaField()
 
     // COMPUTE MACHINE LEARNING FEATURES
     //////////////////////////Q-criterion//////////////////////////////////
-    volScalarField Ux_(U.component(vector::X));
+    volScalarField Ux_(U_.component(vector::X));
 
-    volScalarField Uy_(U.component(vector::Y)); 
+    volScalarField Uy_(U_.component(vector::Y)); 
     
     volTensorField gradU(fvc::grad(U_));
 
