@@ -554,7 +554,7 @@ void DASpalartAllmarasFv3FIMLv2::calcBetaField()
     pGradAlongStream_ =  (U_ & pGrad) / Foam::max(pG_denominator, dimensionedScalar("minpG",dimensionSet(0,2,-3,0,0,0,0),SMALL)); 
     volVectorField diagUGrad
     (IOobject("diagUGrad",mesh_.time().timeName(), mesh_, IOobject::NO_READ, IOobject::AUTO_WRITE),
-        mesh,
+        mesh_,
         dimensionedVector("diagUGrad", dimensionSet(0,0,0,0,0,0,0),  Foam::vector(0,0,0)),
         zeroGradientFvPatchScalarField::typeName
     );
