@@ -587,8 +587,8 @@ void DASpalartAllmarasFv3FIMLv2::calcBetaField()
     volScalarField chi(nuTilda_ / refViscosity_);
     volScalarField fv1(pow3(chi) / (pow3(chi) + pow3(Cv1_))); 
     volScalarField fv2(1 / pow3(1 + chi / Cv2_)); 
-    volScalarField fv3(((1 + chi * fv1_) * (1 - fv2_)) /chi);
-    volScalarField STilda(fv3_ * Foam::sqrt(2.0) * mag(skew(fvc::grad(U))) + (fv2 * nuTilda_ / (Foam::sqr(kappa_ * d))));
+    volScalarField fv3(((1 + chi * fv1) * (1 - fv2)) /chi);
+    volScalarField STilda(fv3 * Foam::sqrt(2.0) * mag(skew(fvc::grad(U_))) + (fv2 * nuTilda_ / (Foam::sqr(kappa_ * d))));
     
     volScalarField r(
     Foam::min
@@ -614,20 +614,22 @@ void DASpalartAllmarasFv3FIMLv2::calcBetaField()
 
     volScalarField numTemp(Cb1_ * STilda * nuTilda_);
     volScalarField magNumTemp(mag(numTemp)); 
-    volScalarField epsilonTemp(Cb2_/sigmaNut * magSqr(fvc::grad(nuTilda_))); 
+    volScalarField epsilonTemp(Cb2_/sigmaNut_ * magSqr(fvc::grad(nuTilda_))); 
     forAll(mesh_.cells(), cI)
     {
-        ratioProductionToDiffusion[cI] = numTemp[cI] / (magNumTemp[cI] + epsilonTemp[cI]); 
+        ratioProductionToDiffusion_[cI] = numTemp[cI] / (magNumTemp[cI] + epsilonTemp[cI]); 
     }
 
     volScalarField g(r + Cw2_*(pow6(r) - r));
     volScalarField fw(g*pow((1.0 + pow6(Cw3_))/(pow6(g) + pow6(Cw3_)), 1.0/6.0)); 
-    volScalarField num2Temp(Cw1*_fw*Foam::sqr(nuTilda_/d)); 
+    volScalarField num2Temp(Cw1_*fw*Foam::sqr(nuTilda_/d)); 
     forAll(mesh_.cells(), cI)
     {
         ratioDestructionToDiffusion_[cI] = num2Temp[cI] / (mag(num2Temp[cI]) + epsilonTemp[cI]);
     }
 
+    label n = 9 * mesh_.nCells();
+    label m = mesh_.nCells();
     forAll(mesh_.cells(), cI)
     {
         inputs_[cI * 9 + 0] = QCriterion_[cI];
