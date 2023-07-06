@@ -118,6 +118,7 @@ protected:
     volScalarField wallInfluence_;
     volScalarField ratioProductionToDiffusion_; 
     volScalarField ratioDestructionToDiffusion_; 
+    IOdictionary transportProperties;
     dimensionedScalar refViscosity_; 
 
     /// 3D wall distance
