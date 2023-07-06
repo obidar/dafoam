@@ -125,7 +125,7 @@ DASpalartAllmarasFv3FIMLv2::DASpalartAllmarasFv3FIMLv2(
           mesh_,
           dimensionedScalar("betaFieldInversionML", dimensionSet(0, 0, 0, 0, 0, 0, 0), 1.0),
           zeroGradientFvPatchScalarField::typeName),
-    QCriterion_(
+      QCriterion_(
           IOobject(
               "QCriterion",
               mesh.time().timeName(),
@@ -135,6 +135,8 @@ DASpalartAllmarasFv3FIMLv2::DASpalartAllmarasFv3FIMLv2(
           mesh_,
           dimensionedScalar("QCriterion", dimensionSet(0, 0, 0, 0, 0, 0, 0), 0.0),
           zeroGradientFvPatchScalarField::typeName),
+    p_(const_cast<volScalarField&>(
+          mesh_.thisDb().lookupObject<volScalarField>("p"))),
     pGradAlongStream_(
           IOobject(
               "pGradAlongStream",
@@ -215,7 +217,7 @@ DASpalartAllmarasFv3FIMLv2::DASpalartAllmarasFv3FIMLv2(
           mesh_,
           dimensionedScalar("ratioDestructionToDiffusion", dimensionSet(0, 0, 0, 0, 0, 0, 0), 0.0),
           zeroGradientFvPatchScalarField::typeName),
-     dimensionedScalar refViscosity(transportProperties.lookup("nu")), 
+     refViscosity_(transportProperties.lookup("nu")), 
       y_(mesh.thisDb().lookupObject<volScalarField>("yWall"))
 {
 
@@ -539,8 +541,8 @@ void DASpalartAllmarasFv3FIMLv2::calcBetaField()
     QCriterion_ = (magOmegaSqr -  magSSqr)/(magOmegaSqr + magSSqr); 
 
     volVectorField pGrad("gradP",fvc::grad(p_));
-    volScalarField pG_denominator (mag(U) * mag(pGrad) + mag(U_ & pGrad));
-    pGradAlongStream_ =  (U & pGrad) / Foam::max(pG_denominator, dimensionedScalar("minpG",dimensionSet(0,2,-3,0,0,0,0),SMALL)); 
+    volScalarField pG_denominator (mag(U_) * mag(pGrad) + mag(U_ & pGrad));
+    pGradAlongStream_ =  (U_ & pGrad) / Foam::max(pG_denominator, dimensionedScalar("minpG",dimensionSet(0,2,-3,0,0,0,0),SMALL)); 
     volVectorField diagUGrad
     (IOobject("diagUGrad",runTime.timeName(), mesh, IOobject::NO_READ, IOobject::AUTO_WRITE),
         mesh,
@@ -552,7 +554,7 @@ void DASpalartAllmarasFv3FIMLv2::calcBetaField()
         diagUGrad[cI].component(0) = UGrad[cI].xx(); 
         diagUGrad[cI].component(1) = UGrad[cI].yy(); 
         diagUGrad[cI].component(2) =  UGrad[cI].zz(); 
-        pressureStress_[cI] = mag(pGrad[cI]) / (mag(pGrad[cI]) + mag(3.0*cmptAv(U[cI] & diagUGrad[cI])));
+        pressureStress_[cI] = mag(pGrad[cI]) / (mag(pGrad[cI]) + mag(3.0*cmptAv(U_[cI] & diagUGrad[cI])));
     }
 
     forAll(mesh_.cells(), cI)
@@ -560,7 +562,7 @@ void DASpalartAllmarasFv3FIMLv2::calcBetaField()
         curvature_[cI] = mag(U_[cI] & UGrad[cI]) 
                         /
                         (
-                            mag(U_[cI] &  U[cI])
+                            mag(U_[cI] &  U_[cI])
                           + mag(U_[cI] & UGrad[cI])
                         );
     }
@@ -578,15 +580,15 @@ void DASpalartAllmarasFv3FIMLv2::calcBetaField()
 
     forAll(mesh_.cells(), cI)
     {
-        viscosityRatio_[cI] = nut_[cI] / (nut_[cI] + 100 * refViscosity.value()); 
+        viscosityRatio_[cI] = nut_[cI] / (nut_[cI] + 100 * refViscosity_.value()); 
     }   
 
     volScalarField d(wallDist::New(mesh).y_());
-    volScalarField chi(nuTilda_ / refViscosity);
+    volScalarField chi(nuTilda_ / refViscosity_);
     volScalarField fv1(pow3(chi) / (pow3(chi) + pow3(Cv1_))); 
     volScalarField fv2(1 / pow3(1 + chi / Cv2_)); 
     volScalarField fv3(((1 + chi * fv1_) * (1 - fv2_)) /chi);
-    volScalarField STilda(fv3_ * Foam::sqrt(2.0) * mag(skew(fvc::grad(U))) + (fv2 * nuTilda / (Foam::sqr(kappa * d))));
+    volScalarField STilda(fv3_ * Foam::sqrt(2.0) * mag(skew(fvc::grad(U))) + (fv2 * nuTilda_ / (Foam::sqr(kappa_ * d))));
     
     volScalarField r(
     Foam::min
@@ -598,7 +600,7 @@ void DASpalartAllmarasFv3FIMLv2::calcBetaField()
                    STilda,
                    dimensionedScalar("SMALL", STilda.dimensions(), SMALL)
                )
-              *sqr(kappa*d)
+              *sqr(kappa_*d)
             ),
             scalar(10.0)
         )

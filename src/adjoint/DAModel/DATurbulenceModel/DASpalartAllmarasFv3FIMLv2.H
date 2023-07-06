@@ -108,6 +108,18 @@ protected:
 
     volScalarField betaFieldInversionML_; 
 
+    volScalarField QCriterion_; 
+    volScalarField& p_;
+    volScalarField pGradAlongStream_; 
+    volScalarField pressureStress_;
+    volScalarField curvature_; 
+    volScalarField UGradMisalignment_;
+    volScalarField viscosityRatio_;
+    volScalarField wallInfluence_;
+    volScalarField ratioProductionToDiffusion_; 
+    volScalarField ratioDestructionToDiffusion_; 
+    dimensionedScalar refViscosity_; 
+
     /// 3D wall distance
     const volScalarField& y_;
 
