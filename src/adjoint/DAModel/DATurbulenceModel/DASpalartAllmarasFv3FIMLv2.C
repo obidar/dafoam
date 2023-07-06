@@ -217,16 +217,16 @@ DASpalartAllmarasFv3FIMLv2::DASpalartAllmarasFv3FIMLv2(
           mesh_,
           dimensionedScalar("ratioDestructionToDiffusion", dimensionSet(0, 0, 0, 0, 0, 0, 0), 0.0),
           zeroGradientFvPatchScalarField::typeName),
-     transportProperties
-     (
-        IOobject(
-            "transportProperties", 
-            mesh.time().timeName().constant(), 
-            mesh_, 
-            IOobject::MUST_READ, 
-            IOobject::NO_WRITE
-        )),
-     refViscosity_(transportProperties.lookup("nu")), 
+    // transportProperties
+    // (
+    //    IOobject(
+    //        "transportProperties", 
+    //        mesh.time().timeName().constant(), 
+    //        mesh_, 
+    //        IOobject::MUST_READ, 
+    //        IOobject::NO_WRITE
+    //    )),
+    // refViscosity_(transportProperties.lookup("nu")), 
       y_(mesh.thisDb().lookupObject<volScalarField>("yWall"))
 {
 
@@ -592,8 +592,8 @@ void DASpalartAllmarasFv3FIMLv2::calcBetaField()
         viscosityRatio_[cI] = nut_[cI] / (nut_[cI] + 100 * refViscosity_.value()); 
     }   
 
-    volScalarField d(wallDist::New(mesh_).y_());
-    volScalarField chi(nuTilda_ / refViscosity_);
+    volScalarField d(y_);
+    volScalarField chi(nuTilda_ / 5.0e-06);
     volScalarField fv1(pow3(chi) / (pow3(chi) + pow3(Cv1_))); 
     volScalarField fv2(1 / pow3(1 + chi / Cv2_)); 
     volScalarField fv3(((1 + chi * fv1) * (1 - fv2)) /chi);
