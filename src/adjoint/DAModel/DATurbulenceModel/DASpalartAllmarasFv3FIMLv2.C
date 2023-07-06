@@ -27,7 +27,7 @@
 
 \*---------------------------------------------------------------------------*/
 
-#include "DASpalartAllmarasFv3FIML.H"
+#include "DASpalartAllmarasFv3FIMLv2.H"
 #include "IFstream.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
@@ -35,11 +35,11 @@
 namespace Foam
 {
 
-defineTypeNameAndDebug(DASpalartAllmarasFv3FIML, 0);
-addToRunTimeSelectionTable(DATurbulenceModel, DASpalartAllmarasFv3FIML, dictionary);
+defineTypeNameAndDebug(DASpalartAllmarasFv3FIMLv2, 0);
+addToRunTimeSelectionTable(DATurbulenceModel, DASpalartAllmarasFv3FIMLv2, dictionary);
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-DASpalartAllmarasFv3FIML::DASpalartAllmarasFv3FIML(
+DASpalartAllmarasFv3FIMLv2::DASpalartAllmarasFv3FIMLv2(
     const word modelType,
     const fvMesh& mesh,
     const DAOption& daOption)
@@ -125,6 +125,97 @@ DASpalartAllmarasFv3FIML::DASpalartAllmarasFv3FIML(
           mesh_,
           dimensionedScalar("betaFieldInversionML", dimensionSet(0, 0, 0, 0, 0, 0, 0), 1.0),
           zeroGradientFvPatchScalarField::typeName),
+    QCriterion_(
+          IOobject(
+              "QCriterion",
+              mesh.time().timeName(),
+              mesh_,
+              IOobject::NO_READ,
+              IOobject::AUTO_WRITE),
+          mesh_,
+          dimensionedScalar("QCriterion", dimensionSet(0, 0, 0, 0, 0, 0, 0), 0.0),
+          zeroGradientFvPatchScalarField::typeName),
+    pGradAlongStream_(
+          IOobject(
+              "pGradAlongStream",
+              mesh.time().timeName(),
+              mesh_,
+              IOobject::NO_READ,
+              IOobject::AUTO_WRITE),
+          mesh_,
+          dimensionedScalar("pGradAlongStream", dimensionSet(0, 0, 0, 0, 0, 0, 0), 0.0),
+          zeroGradientFvPatchScalarField::typeName),
+    pressureStress_(
+          IOobject(
+              "pressureStress",
+              mesh.time().timeName(),
+              mesh_,
+              IOobject::NO_READ,
+              IOobject::AUTO_WRITE),
+          mesh_,
+          dimensionedScalar("pressureStress", dimensionSet(0, 0, 0, 0, 0, 0, 0), 0.0),
+          zeroGradientFvPatchScalarField::typeName),
+    curvature_(
+          IOobject(
+              "curvature",
+              mesh.time().timeName(),
+              mesh_,
+              IOobject::NO_READ,
+              IOobject::AUTO_WRITE),
+          mesh_,
+          dimensionedScalar("curvature", dimensionSet(0, 0, 0, 0, 0, 0, 0), 0.0),
+          zeroGradientFvPatchScalarField::typeName),
+    UGradMisalignment_(
+          IOobject(
+              "UGradMisalignment",
+              mesh.time().timeName(),
+              mesh_,
+              IOobject::NO_READ,
+              IOobject::AUTO_WRITE),
+          mesh_,
+          dimensionedScalar("UGradMisalignment", dimensionSet(0, 0, 0, 0, 0, 0, 0), 0.0),
+          zeroGradientFvPatchScalarField::typeName),
+    viscosityRatio_(
+          IOobject(
+              "viscosityRatio",
+              mesh.time().timeName(),
+              mesh_,
+              IOobject::NO_READ,
+              IOobject::AUTO_WRITE),
+          mesh_,
+          dimensionedScalar("viscosityRatio", dimensionSet(0, 0, 0, 0, 0, 0, 0), 0.0),
+          zeroGradientFvPatchScalarField::typeName),
+    wallInfluence_(
+          IOobject(
+              "wallInfluence",
+              mesh.time().timeName(),
+              mesh_,
+              IOobject::NO_READ,
+              IOobject::AUTO_WRITE),
+          mesh_,
+          dimensionedScalar("wallInfluence", dimensionSet(0, 0, 0, 0, 0, 0, 0), 0.0),
+          zeroGradientFvPatchScalarField::typeName),
+    ratioProductionToDiffusion_(
+          IOobject(
+              "ratioProductionToDiffusion",
+              mesh.time().timeName(),
+              mesh_,
+              IOobject::NO_READ,
+              IOobject::AUTO_WRITE),
+          mesh_,
+          dimensionedScalar("ratioProductionToDiffusion", dimensionSet(0, 0, 0, 0, 0, 0, 0), 0.0),
+          zeroGradientFvPatchScalarField::typeName),
+    ratioDestructionToDiffusion_(
+          IOobject(
+              "ratioDestructionToDiffusion",
+              mesh.time().timeName(),
+              mesh_,
+              IOobject::NO_READ,
+              IOobject::AUTO_WRITE),
+          mesh_,
+          dimensionedScalar("ratioDestructionToDiffusion", dimensionSet(0, 0, 0, 0, 0, 0, 0), 0.0),
+          zeroGradientFvPatchScalarField::typeName),
+     dimensionedScalar refViscosity(transportProperties.lookup("nu")), 
       y_(mesh.thisDb().lookupObject<volScalarField>("yWall"))
 {
 
@@ -154,26 +245,26 @@ DASpalartAllmarasFv3FIML::DASpalartAllmarasFv3FIML(
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 // SA member functions. these functions are copied from
-tmp<volScalarField> DASpalartAllmarasFv3FIML::chi() const
+tmp<volScalarField> DASpalartAllmarasFv3FIMLv2::chi() const
 {
     return nuTilda_ / this->nu();
 }
 
-tmp<volScalarField> DASpalartAllmarasFv3FIML::fv1(
+tmp<volScalarField> DASpalartAllmarasFv3FIMLv2::fv1(
     const volScalarField& chi) const
 {
     const volScalarField chi3(pow3(chi));
     return chi3 / (chi3 + pow3(Cv1_));
 }
 
-tmp<volScalarField> DASpalartAllmarasFv3FIML::fv2(
+tmp<volScalarField> DASpalartAllmarasFv3FIMLv2::fv2(
     const volScalarField& chi,
     const volScalarField& fv1) const
 {
     return 1.0 / pow3(scalar(1) + chi / Cv2_);
 }
 
-tmp<volScalarField> DASpalartAllmarasFv3FIML::fv3(
+tmp<volScalarField> DASpalartAllmarasFv3FIMLv2::fv3(
     const volScalarField& chi,
     const volScalarField& fv1) const
 {
@@ -186,7 +277,7 @@ tmp<volScalarField> DASpalartAllmarasFv3FIML::fv3(
         / pow3(scalar(1) + chiByCv2);
 }
 
-tmp<volScalarField> DASpalartAllmarasFv3FIML::fw(
+tmp<volScalarField> DASpalartAllmarasFv3FIMLv2::fw(
     const volScalarField& Stilda) const
 {
     volScalarField r(
@@ -204,14 +295,14 @@ tmp<volScalarField> DASpalartAllmarasFv3FIML::fw(
     return g * pow((1.0 + pow6(Cw3_)) / (pow6(g) + pow6(Cw3_)), 1.0 / 6.0);
 }
 
-tmp<volScalarField> DASpalartAllmarasFv3FIML::DnuTildaEff() const
+tmp<volScalarField> DASpalartAllmarasFv3FIMLv2::DnuTildaEff() const
 {
     return tmp<volScalarField>(
         new volScalarField("DnuTildaEff", (nuTilda_ + this->nu()) / sigmaNut_));
 }
 
 // Augmented functions
-void DASpalartAllmarasFv3FIML::correctModelStates(wordList& modelStates) const
+void DASpalartAllmarasFv3FIMLv2::correctModelStates(wordList& modelStates) const
 {
     /*
     Description:
@@ -245,7 +336,7 @@ void DASpalartAllmarasFv3FIML::correctModelStates(wordList& modelStates) const
     }
 }
 
-void DASpalartAllmarasFv3FIML::correctNut()
+void DASpalartAllmarasFv3FIMLv2::correctNut()
 {
     /*
     Description:
@@ -265,7 +356,7 @@ void DASpalartAllmarasFv3FIML::correctNut()
     return;
 }
 
-void DASpalartAllmarasFv3FIML::correctBoundaryConditions()
+void DASpalartAllmarasFv3FIMLv2::correctBoundaryConditions()
 {
     /*
     Description:
@@ -276,7 +367,7 @@ void DASpalartAllmarasFv3FIML::correctBoundaryConditions()
     nuTilda_.correctBoundaryConditions();
 }
 
-void DASpalartAllmarasFv3FIML::updateIntermediateVariables()
+void DASpalartAllmarasFv3FIMLv2::updateIntermediateVariables()
 {
     /*
     Description:
@@ -287,7 +378,7 @@ void DASpalartAllmarasFv3FIML::updateIntermediateVariables()
     this->correctNut();
 }
 
-void DASpalartAllmarasFv3FIML::correctStateResidualModelCon(List<List<word>>& stateCon) const
+void DASpalartAllmarasFv3FIMLv2::correctStateResidualModelCon(List<List<word>>& stateCon) const
 {
     /*
     Description:
@@ -337,7 +428,7 @@ void DASpalartAllmarasFv3FIML::correctStateResidualModelCon(List<List<word>>& st
     }
 }
 
-void DASpalartAllmarasFv3FIML::addModelResidualCon(HashTable<List<List<word>>>& allCon) const
+void DASpalartAllmarasFv3FIMLv2::addModelResidualCon(HashTable<List<List<word>>>& allCon) const
 {
     /*
     Description:
@@ -415,7 +506,7 @@ void DASpalartAllmarasFv3FIML::addModelResidualCon(HashTable<List<List<word>>>& 
 #endif
 }
 
-void DASpalartAllmarasFv3FIML::correct()
+void DASpalartAllmarasFv3FIMLv2::correct()
 {
     /*
     Descroption:
@@ -435,38 +526,117 @@ void DASpalartAllmarasFv3FIML::correct()
     solveTurbState_ = 0;
 }
 
-void DASpalartAllmarasFv3FIML::calcBetaField()
+void DASpalartAllmarasFv3FIMLv2::calcBetaField()
 {
 
     // COMPUTE MACHINE LEARNING FEATURES
-    volScalarField Ux_(U_.component(vector::X));
+    volTensorField UGrad(fvc::grad(U_));
+    volTensorField Omega("Omega",skew(UGrad));
+    volScalarField magOmegaSqr(magSqr(Omega));
+    volSymmTensorField S("S",symm(UGrad));
+    volScalarField magS(mag(S));
+    volScalarField magSSqr(magSqr(S));
+    QCriterion_ = (magOmegaSqr -  magSSqr)/(magOmegaSqr + magSSqr); 
 
-    volScalarField Uy_(U_.component(vector::Y)); 
-    
-    volTensorField gradU(fvc::grad(U_));
-
-    volScalarField gradUxx_(gradU.component(tensor::XX));
-    
-    volScalarField gradUxy_(gradU.component(tensor::XY));
-
-    volScalarField gradUyx_(gradU.component(tensor::YX));
-    
-    volScalarField gradUyy_(gradU.component(tensor::YY));
-
-    volScalarField wallDist_(y_); 
-
-    label n = 7 * mesh_.nCells();
-    label m = mesh_.nCells();
+    volVectorField pGrad("gradP",fvc::grad(p_));
+    volScalarField pG_denominator (mag(U) * mag(pGrad) + mag(U_ & pGrad));
+    pGradAlongStream_ =  (U & pGrad) / Foam::max(pG_denominator, dimensionedScalar("minpG",dimensionSet(0,2,-3,0,0,0,0),SMALL)); 
+    volVectorField diagUGrad
+    (IOobject("diagUGrad",runTime.timeName(), mesh, IOobject::NO_READ, IOobject::AUTO_WRITE),
+        mesh,
+        dimensionedVector("diagUGrad", dimensionSet(0,0,0,0,0,0,0),  Foam::vector(0,0,0)),
+        zeroGradientFvPatchScalarField::typeName
+    );
+    forAll(mesh_.cells(), cI)
+    {
+        diagUGrad[cI].component(0) = UGrad[cI].xx(); 
+        diagUGrad[cI].component(1) = UGrad[cI].yy(); 
+        diagUGrad[cI].component(2) =  UGrad[cI].zz(); 
+        pressureStress_[cI] = mag(pGrad[cI]) / (mag(pGrad[cI]) + mag(3.0*cmptAv(U[cI] & diagUGrad[cI])));
+    }
 
     forAll(mesh_.cells(), cI)
     {
-        inputs_[cI * 7 + 0] = Ux_[cI];
-        inputs_[cI * 7 + 1] = Uy_[cI];
-        inputs_[cI * 7 + 2] = gradUxx_[cI];
-        inputs_[cI * 7 + 3] = gradUxy_[cI];
-        inputs_[cI * 7 + 4] = gradUyx_[cI];
-        inputs_[cI * 7 + 5] = gradUyy_[cI];
-        inputs_[cI * 7 + 6] = wallDist_[cI];
+        curvature_[cI] = mag(U_[cI] & UGrad[cI]) 
+                        /
+                        (
+                            mag(U_[cI] &  U[cI])
+                          + mag(U_[cI] & UGrad[cI])
+                        );
+    }
+
+    forAll(mesh_.cells(), cI)
+    {
+        UGradMisalignment_[cI] = mag(U_[cI] & UGrad[cI] & U_[cI]) 
+                        / 
+                        ( 
+                            mag(U_[cI]) * mag(UGrad[cI] & U_[cI])
+                            + 
+                            mag(U_[cI] & UGrad[cI] & U_[cI]) 
+                        );
+    }
+
+    forAll(mesh_.cells(), cI)
+    {
+        viscosityRatio_[cI] = nut_[cI] / (nut_[cI] + 100 * refViscosity.value()); 
+    }   
+
+    volScalarField d(wallDist::New(mesh).y_());
+    volScalarField chi(nuTilda_ / refViscosity);
+    volScalarField fv1(pow3(chi) / (pow3(chi) + pow3(Cv1_))); 
+    volScalarField fv2(1 / pow3(1 + chi / Cv2_)); 
+    volScalarField fv3(((1 + chi * fv1_) * (1 - fv2_)) /chi);
+    volScalarField STilda(fv3_ * Foam::sqrt(2.0) * mag(skew(fvc::grad(U))) + (fv2 * nuTilda / (Foam::sqr(kappa * d))));
+    
+    volScalarField r(
+    Foam::min
+    (
+            nuTilda_
+           /(
+               Foam::max
+               (
+                   STilda,
+                   dimensionedScalar("SMALL", STilda.dimensions(), SMALL)
+               )
+              *sqr(kappa*d)
+            ),
+            scalar(10.0)
+        )
+    ); 
+    
+    //volScalarField r(Foam::min((nuTilda/(Foam::sqr(kappa * d) * STilda),10));
+    forAll(mesh_.cells(), cI)
+    {
+        wallInfluence_[cI] = 1 / (1 + r[cI]); 
+    }
+
+    volScalarField numTemp(Cb1_ * STilda * nuTilda_);
+    volScalarField magNumTemp(mag(numTemp)); 
+    volScalarField epsilonTemp(Cb2_/sigmaNut * magSqr(fvc::grad(nuTilda_))); 
+    forAll(mesh_.cells(), cI)
+    {
+        ratioProductionToDiffusion[cI] = numTemp[cI] / (magNumTemp[cI] + epsilonTemp[cI]); 
+    }
+
+    volScalarField g(r + Cw2_*(pow6(r) - r));
+    volScalarField fw(g*pow((1.0 + pow6(Cw3_))/(pow6(g) + pow6(Cw3_)), 1.0/6.0)); 
+    volScalarField num2Temp(Cw1*_fw*Foam::sqr(nuTilda_/d)); 
+    forAll(mesh_.cells(), cI)
+    {
+        ratioDestructionToDiffusion_[cI] = num2Temp[cI] / (mag(num2Temp[cI]) + epsilonTemp[cI]);
+    }
+
+    forAll(mesh_.cells(), cI)
+    {
+        inputs_[cI * 9 + 0] = QCriterion_[cI];
+        inputs_[cI * 9 + 1] = pGradAlongStream_[cI];
+        inputs_[cI * 9 + 2] = pressureStress_[cI];
+        inputs_[cI * 9 + 3] = curvature_[cI];
+        inputs_[cI * 9 + 4] = UGradMisalignment_[cI];
+        inputs_[cI * 9 + 5] = viscosityRatio_[cI];
+        inputs_[cI * 9 + 6] = wallInfluence_[cI];
+        inputs_[cI * 9 + 7] = ratioProductionToDiffusion_[cI];
+        inputs_[cI * 9 + 8] = ratioDestructionToDiffusion_[cI];
     }
 
     // NOTE: forward mode not supported..
@@ -485,13 +655,13 @@ void DASpalartAllmarasFv3FIML::calcBetaField()
         externalFunc.addOutput(outputs_[i]);
     }
 
-    externalFunc.callPrimalFunc(DASpalartAllmarasFv3FIML::betaCompute);
+    externalFunc.callPrimalFunc(DASpalartAllmarasFv3FIMLv2::betaCompute);
 
     codi::RealReverse::Tape& tape = codi::RealReverse::getTape();
 
     if (tape.isActive())
     {
-        externalFunc.addToTape(DASpalartAllmarasFv3FIML::betaJacVecProd);
+        externalFunc.addToTape(DASpalartAllmarasFv3FIMLv2::betaJacVecProd);
     }
 
     forAll(betaFieldInversionML_, cellI)
@@ -532,7 +702,7 @@ void DASpalartAllmarasFv3FIML::calcBetaField()
 #endif
 }
 
-void DASpalartAllmarasFv3FIML::calcResiduals(const dictionary& options)
+void DASpalartAllmarasFv3FIMLv2::calcResiduals(const dictionary& options)
 {
     /*
     Descroption:
@@ -621,7 +791,7 @@ void DASpalartAllmarasFv3FIML::calcResiduals(const dictionary& options)
     return;
 }
 
-void DASpalartAllmarasFv3FIML::getTurbProdTerm(scalarList& prodTerm) const
+void DASpalartAllmarasFv3FIMLv2::getTurbProdTerm(scalarList& prodTerm) const
 {
     /*
     Description:

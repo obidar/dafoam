@@ -32,8 +32,8 @@
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef DASpalartAllmarasFv3FIML_H
-#define DASpalartAllmarasFv3FIML_H
+#ifndef DASpalartAllmarasFv3FIMLv2_H
+#define DASpalartAllmarasFv3FIMLv2_H
 
 #include "DATurbulenceModel.H"
 #include "addToRunTimeSelectionTable.H"
@@ -44,10 +44,10 @@ namespace Foam
 {
 
 /*---------------------------------------------------------------------------*\
-                       Class DASpalartAllmarasFv3FIML Declaration
+                       Class DASpalartAllmarasFv3FIMLv2 Declaration
 \*---------------------------------------------------------------------------*/
 
-class DASpalartAllmarasFv3FIML
+class DASpalartAllmarasFv3FIMLv2
     : public DATurbulenceModel
 {
 
@@ -65,7 +65,7 @@ protected:
     dimensionedScalar Cv2_;
 
     /// inputs and outputs for the beta calculation
-    scalar* inputs_ = new scalar[mesh_.nCells() * 9];
+    scalar* inputs_ = new scalar[mesh_.nCells() * 7];
     scalar* outputs_ = new scalar[mesh_.nCells()];
 
 #ifdef CODI_AD_FORWARD
@@ -108,26 +108,6 @@ protected:
 
     volScalarField betaFieldInversionML_; 
 
-    volScalarField QCriterion_;
-
-    volScalarField pGradAlongStream_;
-
-    volScalarField pressureStress_;
-
-    volScalarField curvature_;
-
-    volScalarField UGradMisalignment_;
-
-    volScalarField viscosityRatio_;
-
-    volScalarField wallInfluence_;
-
-    volScalarField ratioProductionToDiffusion_;
-
-    volScalarField ratioDestructionToDiffusion_;
-
-    dimensionedScalar refViscosity;
-
     /// 3D wall distance
     const volScalarField& y_;
 
@@ -138,17 +118,17 @@ protected:
     label printInterval_;
 
 public:
-    TypeName("SpalartAllmarasFv3FIML");
+    TypeName("SpalartAllmarasFv3FIMLv2");
     // Constructors
 
     //- Construct from components
-    DASpalartAllmarasFv3FIML(
+    DASpalartAllmarasFv3FIMLv2(
         const word modelType,
         const fvMesh& mesh,
         const DAOption& daOption);
 
     //- Destructor
-    virtual ~DASpalartAllmarasFv3FIML()
+    virtual ~DASpalartAllmarasFv3FIMLv2()
     {
         delete[] inputs_;
         delete[] outputs_;
