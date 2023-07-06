@@ -217,6 +217,16 @@ DASpalartAllmarasFv3FIMLv2::DASpalartAllmarasFv3FIMLv2(
           mesh_,
           dimensionedScalar("ratioDestructionToDiffusion", dimensionSet(0, 0, 0, 0, 0, 0, 0), 0.0),
           zeroGradientFvPatchScalarField::typeName),
+          IOdictionary transportProperties
+     transportProperties
+     (
+        IOobject(
+            "transportProperties", 
+            mesh.time().timeName().constant(), 
+            mesh_, 
+            IOobject::MUST_READ, 
+            IOobject::NO_WRITE
+        )),
      refViscosity_(transportProperties.lookup("nu")), 
       y_(mesh.thisDb().lookupObject<volScalarField>("yWall"))
 {
@@ -544,7 +554,7 @@ void DASpalartAllmarasFv3FIMLv2::calcBetaField()
     volScalarField pG_denominator (mag(U_) * mag(pGrad) + mag(U_ & pGrad));
     pGradAlongStream_ =  (U_ & pGrad) / Foam::max(pG_denominator, dimensionedScalar("minpG",dimensionSet(0,2,-3,0,0,0,0),SMALL)); 
     volVectorField diagUGrad
-    (IOobject("diagUGrad",runTime.timeName(), mesh, IOobject::NO_READ, IOobject::AUTO_WRITE),
+    (IOobject("diagUGrad",mesh.time().timeName(), mesh_, IOobject::NO_READ, IOobject::AUTO_WRITE),
         mesh,
         dimensionedVector("diagUGrad", dimensionSet(0,0,0,0,0,0,0),  Foam::vector(0,0,0)),
         zeroGradientFvPatchScalarField::typeName
