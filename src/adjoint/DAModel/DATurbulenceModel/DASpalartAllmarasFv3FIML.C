@@ -125,6 +125,98 @@ DASpalartAllmarasFv3FIML::DASpalartAllmarasFv3FIML(
           mesh_,
           dimensionedScalar("betaFieldInversionML", dimensionSet(0, 0, 0, 0, 0, 0, 0), 1.0),
           zeroGradientFvPatchScalarField::typeName),
+          QCriterion_(
+          IOobject(
+              "QCriterion",
+              mesh.time().timeName(),
+              mesh_,
+              IOobject::NO_READ,
+              IOobject::AUTO_WRITE),
+          mesh_,
+          dimensionedScalar("QCriterion", dimensionSet(0, 0, 0, 0, 0, 0, 0), 0.0),
+          zeroGradientFvPatchScalarField::typeName),
+    p_(const_cast<volScalarField&>(
+          mesh_.thisDb().lookupObject<volScalarField>("p"))),
+    pGradAlongStream_(
+          IOobject(
+              "pGradAlongStream",
+              mesh.time().timeName(),
+              mesh_,
+              IOobject::NO_READ,
+              IOobject::AUTO_WRITE),
+          mesh_,
+          dimensionedScalar("pGradAlongStream", dimensionSet(0, 0, 0, 0, 0, 0, 0), 0.0),
+          zeroGradientFvPatchScalarField::typeName),
+    pressureStress_(
+          IOobject(
+              "pressureStress",
+              mesh.time().timeName(),
+              mesh_,
+              IOobject::NO_READ,
+              IOobject::AUTO_WRITE),
+          mesh_,
+          dimensionedScalar("pressureStress", dimensionSet(0, 0, 0, 0, 0, 0, 0), 0.0),
+          zeroGradientFvPatchScalarField::typeName),
+    curvature_(
+          IOobject(
+              "curvature",
+              mesh.time().timeName(),
+              mesh_,
+              IOobject::NO_READ,
+              IOobject::AUTO_WRITE),
+          mesh_,
+          dimensionedScalar("curvature", dimensionSet(0, 0, 0, 0, 0, 0, 0), 0.0),
+          zeroGradientFvPatchScalarField::typeName),
+    UGradMisalignment_(
+          IOobject(
+              "UGradMisalignment",
+              mesh.time().timeName(),
+              mesh_,
+              IOobject::NO_READ,
+              IOobject::AUTO_WRITE),
+          mesh_,
+          dimensionedScalar("UGradMisalignment", dimensionSet(0, 0, 0, 0, 0, 0, 0), 0.0),
+          zeroGradientFvPatchScalarField::typeName),
+    viscosityRatio_(
+          IOobject(
+              "viscosityRatio",
+              mesh.time().timeName(),
+              mesh_,
+              IOobject::NO_READ,
+              IOobject::AUTO_WRITE),
+          mesh_,
+          dimensionedScalar("viscosityRatio", dimensionSet(0, 0, 0, 0, 0, 0, 0), 0.0),
+          zeroGradientFvPatchScalarField::typeName),
+    wallInfluence_(
+          IOobject(
+              "wallInfluence",
+              mesh.time().timeName(),
+              mesh_,
+              IOobject::NO_READ,
+              IOobject::AUTO_WRITE),
+          mesh_,
+          dimensionedScalar("wallInfluence", dimensionSet(0, 0, 0, 0, 0, 0, 0), 0.0),
+          zeroGradientFvPatchScalarField::typeName),
+    ratioProductionToDiffusion_(
+          IOobject(
+              "ratioProductionToDiffusion",
+              mesh.time().timeName(),
+              mesh_,
+              IOobject::NO_READ,
+              IOobject::AUTO_WRITE),
+          mesh_,
+          dimensionedScalar("ratioProductionToDiffusion", dimensionSet(0, 0, 0, 0, 0, 0, 0), 0.0),
+          zeroGradientFvPatchScalarField::typeName),
+    ratioDestructionToDiffusion_(
+          IOobject(
+              "ratioDestructionToDiffusion",
+              mesh.time().timeName(),
+              mesh_,
+              IOobject::NO_READ,
+              IOobject::AUTO_WRITE),
+          mesh_,
+          dimensionedScalar("ratioDestructionToDiffusion", dimensionSet(0, 0, 0, 0, 0, 0, 0), 0.0),
+          zeroGradientFvPatchScalarField::typeName),
       y_(mesh.thisDb().lookupObject<volScalarField>("yWall"))
 {
 
