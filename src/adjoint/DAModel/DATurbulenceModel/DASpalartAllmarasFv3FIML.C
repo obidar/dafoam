@@ -586,7 +586,7 @@ void DASpalartAllmarasFv3FIML::calcBetaField()
     volScalarField fv1(pow3(chi) / (pow3(chi) + pow3(Cv1_))); 
     volScalarField fv2(1 / pow3(1 + chi / Cv2_)); 
     volScalarField fv3(((1 + chi * fv1) * (1 - fv2)) /chi);
-    volScalarField STilda(fv3 * Foam::sqrt(2.0) * mag(skew(fvc::grad(U_))) + (fv2 * nuTilda_ / (Foam::sqr(kappa_ * d))));
+    volScalarField STilda(fv3 * ::sqrt(2.0) * mag(skew(fvc::grad(U_))) + (fv2 * nuTilda_ / (sqr(kappa_ * d))));
     
     volScalarField r(
     Foam::min
