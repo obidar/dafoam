@@ -578,7 +578,7 @@ void DASpalartAllmarasFv3FIML::calcBetaField()
 
     forAll(mesh_.cells(), cI)
     {
-        viscosityRatio_[cI] = nut_[cI] / (nut_[cI] + 100 * refViscosity_.value()); 
+        viscosityRatio_[cI] = nut_[cI] / (nut_[cI] + 100 * 5.0e-06); 
     }   
 
     volScalarField d(y_);
