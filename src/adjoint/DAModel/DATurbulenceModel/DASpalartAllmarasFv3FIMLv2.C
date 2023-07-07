@@ -227,7 +227,7 @@ DASpalartAllmarasFv3FIMLv2::DASpalartAllmarasFv3FIMLv2(
     //        IOobject::NO_WRITE
     //    )),
     // refViscosity_(transportProperties.lookup("nu")), 
-      y_(mesh_.thisDb().lookupObject<volScalarField>("yWall"))
+      y_(mesh.thisDb().lookupObject<volScalarField>("yWall"))
 {
 
     // initialize printInterval_ we need to check whether it is a steady state
@@ -592,7 +592,8 @@ void DASpalartAllmarasFv3FIMLv2::calcBetaField()
         viscosityRatio_[cI] = nut_[cI] / (nut_[cI] + 100 * refViscosity_.value()); 
     }   
 
-    volScalarField d(y_);
+    //volScalarField d(y_);
+    d = wallDist(mesh_).y();
     volScalarField chi(nuTilda_ / 5.0e-06);
     volScalarField fv1(pow3(chi) / (pow3(chi) + pow3(Cv1_))); 
     volScalarField fv2(1 / pow3(1 + chi / Cv2_)); 
