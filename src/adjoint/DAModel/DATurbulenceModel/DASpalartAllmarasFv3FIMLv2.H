@@ -65,7 +65,7 @@ protected:
     dimensionedScalar Cv2_;
 
     /// inputs and outputs for the beta calculation
-    scalar* inputs_ = new scalar[mesh_.nCells() * 7];
+    scalar* inputs_ = new scalar[mesh_.nCells() * 9];
     scalar* outputs_ = new scalar[mesh_.nCells()];
 
 #ifdef CODI_AD_FORWARD

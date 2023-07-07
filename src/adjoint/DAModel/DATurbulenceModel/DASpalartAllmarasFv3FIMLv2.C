@@ -227,7 +227,7 @@ DASpalartAllmarasFv3FIMLv2::DASpalartAllmarasFv3FIMLv2(
     //        IOobject::NO_WRITE
     //    )),
     // refViscosity_(transportProperties.lookup("nu")), 
-      y_(mesh_.thisDb().lookupObject<volScalarField>("yWall"))
+      y_(mesh.thisDb().lookupObject<volScalarField>("yWall"))
 {
 
     // initialize printInterval_ we need to check whether it is a steady state
