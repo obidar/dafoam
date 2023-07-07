@@ -526,39 +526,119 @@ void DASpalartAllmarasFv3FIML::correct()
     // update nuTilda when calling from the adjoint class, i.e., solveAdjoint from DASolver.
     solveTurbState_ = 0;
 }
-
 void DASpalartAllmarasFv3FIML::calcBetaField()
 {
 
     // COMPUTE MACHINE LEARNING FEATURES
-    volScalarField Ux_(U_.component(vector::X));
+    volTensorField UGrad(fvc::grad(U_));
+    volTensorField Omega("Omega",skew(UGrad));
+    volScalarField magOmegaSqr(magSqr(Omega));
+    volSymmTensorField S("S",symm(UGrad));
+    volScalarField magS(mag(S));
+    volScalarField magSSqr(magSqr(S));
+    QCriterion_ = (magOmegaSqr -  magSSqr)/(magOmegaSqr + magSSqr); 
 
-    volScalarField Uy_(U_.component(vector::Y)); 
-    
-    volTensorField gradU(fvc::grad(U_));
-
-    volScalarField gradUxx_(gradU.component(tensor::XX));
-    
-    volScalarField gradUxy_(gradU.component(tensor::XY));
-
-    volScalarField gradUyx_(gradU.component(tensor::YX));
-    
-    volScalarField gradUyy_(gradU.component(tensor::YY));
-
-    volScalarField wallDist_(y_); 
-
-    label n = 7 * mesh_.nCells();
-    label m = mesh_.nCells();
+    volVectorField pGrad("gradP",fvc::grad(p_));
+    volScalarField pG_denominator (mag(U_) * mag(pGrad) + mag(U_ & pGrad));
+    pGradAlongStream_ =  (U_ & pGrad) / Foam::max(pG_denominator, dimensionedScalar("minpG",dimensionSet(0,2,-3,0,0,0,0),SMALL)); 
+    volVectorField diagUGrad
+    (IOobject("diagUGrad",mesh_.time().timeName(), mesh_, IOobject::NO_READ, IOobject::AUTO_WRITE),
+        mesh_,
+        dimensionedVector("diagUGrad", dimensionSet(0,0,0,0,0,0,0),  Foam::vector(0,0,0)),
+        zeroGradientFvPatchScalarField::typeName
+    );
+    forAll(mesh_.cells(), cI)
+    {
+        diagUGrad[cI].component(0) = UGrad[cI].xx(); 
+        diagUGrad[cI].component(1) = UGrad[cI].yy(); 
+        diagUGrad[cI].component(2) =  UGrad[cI].zz(); 
+        pressureStress_[cI] = mag(pGrad[cI]) / (mag(pGrad[cI]) + mag(3.0*cmptAv(U_[cI] & diagUGrad[cI])));
+    }
 
     forAll(mesh_.cells(), cI)
     {
-        inputs_[cI * 7 + 0] = Ux_[cI];
-        inputs_[cI * 7 + 1] = Uy_[cI];
-        inputs_[cI * 7 + 2] = gradUxx_[cI];
-        inputs_[cI * 7 + 3] = gradUxy_[cI];
-        inputs_[cI * 7 + 4] = gradUyx_[cI];
-        inputs_[cI * 7 + 5] = gradUyy_[cI];
-        inputs_[cI * 7 + 6] = wallDist_[cI];
+        curvature_[cI] = mag(U_[cI] & UGrad[cI]) 
+                        /
+                        (
+                            mag(U_[cI] &  U_[cI])
+                          + mag(U_[cI] & UGrad[cI])
+                        );
+    }
+
+    forAll(mesh_.cells(), cI)
+    {
+        UGradMisalignment_[cI] = mag(U_[cI] & UGrad[cI] & U_[cI]) 
+                        / 
+                        ( 
+                            mag(U_[cI]) * mag(UGrad[cI] & U_[cI])
+                            + 
+                            mag(U_[cI] & UGrad[cI] & U_[cI]) 
+                        );
+    }
+
+    forAll(mesh_.cells(), cI)
+    {
+        viscosityRatio_[cI] = nut_[cI] / (nut_[cI] + 100 * refViscosity_.value()); 
+    }   
+
+    volScalarField d(y_);
+    volScalarField chi(nuTilda_ / 5.0e-06);
+    volScalarField fv1(pow3(chi) / (pow3(chi) + pow3(Cv1_))); 
+    volScalarField fv2(1 / pow3(1 + chi / Cv2_)); 
+    volScalarField fv3(((1 + chi * fv1) * (1 - fv2)) /chi);
+    volScalarField STilda(fv3 * Foam::sqrt(2.0) * mag(skew(fvc::grad(U_))) + (fv2 * nuTilda_ / (Foam::sqr(kappa_ * d))));
+    
+    volScalarField r(
+    Foam::min
+    (
+            nuTilda_
+           /(
+               Foam::max
+               (
+                   STilda,
+                   dimensionedScalar("SMALL", STilda.dimensions(), SMALL)
+               )
+              *sqr(kappa_*d)
+            ),
+            scalar(10.0)
+        )
+    ); 
+    
+    //volScalarField r(Foam::min((nuTilda/(Foam::sqr(kappa * d) * STilda),10));
+    forAll(mesh_.cells(), cI)
+    {
+        wallInfluence_[cI] = 1 / (1 + r[cI]); 
+    }
+
+    volScalarField numTemp(Cb1_ * STilda * nuTilda_);
+    volScalarField magNumTemp(mag(numTemp)); 
+    volScalarField epsilonTemp(Cb2_/sigmaNut_ * magSqr(fvc::grad(nuTilda_))); 
+    forAll(mesh_.cells(), cI)
+    {
+        ratioProductionToDiffusion_[cI] = numTemp[cI] / (magNumTemp[cI] + epsilonTemp[cI]); 
+    }
+
+    volScalarField g(r + Cw2_*(pow6(r) - r));
+    volScalarField fw(g*pow((1.0 + pow6(Cw3_))/(pow6(g) + pow6(Cw3_)), 1.0/6.0)); 
+    volScalarField num2Temp(Cw1_*fw*Foam::sqr(nuTilda_/d)); 
+    forAll(mesh_.cells(), cI)
+    {
+        ratioDestructionToDiffusion_[cI] = num2Temp[cI] / (mag(num2Temp[cI]) + epsilonTemp[cI]);
+    }
+
+    label n = 9 * mesh_.nCells();
+    label m = mesh_.nCells();
+    forAll(mesh_.cells(), cI)
+    {
+        inputs_[cI * 9 + 0] = QCriterion_[cI];
+        inputs_[cI * 9 + 1] = pGradAlongStream_[cI];
+        inputs_[cI * 9 + 2] = pressureStress_[cI];
+        inputs_[cI * 9 + 3] = curvature_[cI];
+        inputs_[cI * 9 + 4] = UGradMisalignment_[cI];
+        inputs_[cI * 9 + 5] = viscosityRatio_[cI];
+        inputs_[cI * 9 + 6] = wallInfluence_[cI];
+        inputs_[cI * 9 + 7] = ratioProductionToDiffusion_[cI];
+        inputs_[cI * 9 + 8] = ratioDestructionToDiffusion_[cI];
     }
 
     // NOTE: forward mode not supported..
@@ -567,7 +647,7 @@ void DASpalartAllmarasFv3FIML::calcBetaField()
     // we need to use the external function helper from CoDiPack to propagate the AD
 
     codi::ExternalFunctionHelper<codi::RealReverse> externalFunc;
-    for (label i = 0; i < mesh_.nCells() * 7; i++)
+    for (label i = 0; i < mesh_.nCells() * 9; i++)
     {
         externalFunc.addInput(inputs_[i]);
     }
@@ -623,7 +703,6 @@ void DASpalartAllmarasFv3FIML::calcBetaField()
 
 #endif
 }
-
 void DASpalartAllmarasFv3FIML::calcResiduals(const dictionary& options)
 {
     /*
