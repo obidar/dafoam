@@ -626,19 +626,32 @@ void DASpalartAllmarasFv3FIML::calcBetaField()
     volScalarField destruction(Cw1_*fw(Stilda)*sqr(nuTilda_/y_)); 
     ratioDestructionToDiffusion_ = destruction / (mag(destruction) + diffusion); 
 
+
     label n = 9 * mesh_.nCells();
     label m = mesh_.nCells();
+
+    // Read scaling parameters 
+    RectangularMatrix<scalar> meanStdVals(IFstream("means")());
+    scalar meanArray[n + m] = {0};
+    scalar stdArray[n + m] = {0};
+
+    for (label i = 0; i <= numInputs + numOutputs; i++)
+    {
+        meanArray[i] = meanStdVals(0, i);
+        stdArray[i] = meanStdVals(1, i);
+    }
+
     forAll(mesh_.cells(), cI)
     {
-        inputs_[cI * 9 + 0] = QCriterion_[cI];
-        inputs_[cI * 9 + 1] = pGradAlongStream_[cI];
-        inputs_[cI * 9 + 2] = pressureStress_[cI];
-        inputs_[cI * 9 + 3] = curvature_[cI];
-        inputs_[cI * 9 + 4] = UGradMisalignment_[cI];
-        inputs_[cI * 9 + 5] = viscosityRatio_[cI];
-        inputs_[cI * 9 + 6] = wallInfluence_[cI];
-        inputs_[cI * 9 + 7] = ratioProductionToDiffusion_[cI];
-        inputs_[cI * 9 + 8] = ratioDestructionToDiffusion_[cI];
+        inputs_[cI * 9 + 0] = (QCriterion_[cI] - meanArray[0]) / (stdArray[0]) ;
+        inputs_[cI * 9 + 1] = (pGradAlongStream_[cI] - meanArray[1]) / (stdArray[1]);
+        inputs_[cI * 9 + 2] = (pressureStress_[cI] - meanArray[2]) / (stdArray[2]);
+        inputs_[cI * 9 + 3] = (curvature_[cI] - meanArray[3]) / (stdArray[3]);
+        inputs_[cI * 9 + 4] = (UGradMisalignment_[cI] - meanArray[4]) / (stdArray[4]);
+        inputs_[cI * 9 + 5] = (viscosityRatio_[cI] - meanArray[5]) / (stdArray[5]);
+        inputs_[cI * 9 + 6] = (wallInfluence_[cI] - meanArray[6]) / (stdArray[6]);
+        inputs_[cI * 9 + 7] = (ratioProductionToDiffusion_[cI] - meanArray[7]) / (stdArray[7]);
+        inputs_[cI * 9 + 8] = (ratioDestructionToDiffusion_[cI] - meanArray[8]) / (stdArray[8]);
     }
 
     // NOTE: forward mode not supported..
@@ -688,7 +701,7 @@ void DASpalartAllmarasFv3FIML::calcBetaField()
 
     forAll(betaFieldInversionML_, cellI)
     {
-        betaFieldInversionML_[cellI] = outputsDouble_[cellI];
+        betaFieldInversionML_[cellI] = outputsDouble_[cellI]* stdArray[9] + meanArray[9];
     }
 
 #else
@@ -698,7 +711,7 @@ void DASpalartAllmarasFv3FIML::calcBetaField()
 
     forAll(betaFieldInversionML_, cellI)
     {
-        betaFieldInversionML_[cellI] = outputs_[cellI];
+        betaFieldInversionML_[cellI] = outputs_[cellI]* stdArray[9] + meanArray[9];
     }
 
 #endif
