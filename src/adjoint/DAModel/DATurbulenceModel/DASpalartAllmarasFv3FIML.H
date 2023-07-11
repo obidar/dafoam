@@ -115,6 +115,7 @@ protected:
     volScalarField curvature_; 
     volScalarField UGradMisalignment_;
     volScalarField viscosityRatio_;
+    IOdictionary transportProperties_;
     volScalarField wallInfluence_;
     volScalarField ratioProductionToDiffusion_; 
     volScalarField ratioDestructionToDiffusion_; 
