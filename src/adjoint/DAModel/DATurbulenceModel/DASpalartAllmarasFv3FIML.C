@@ -635,7 +635,7 @@ void DASpalartAllmarasFv3FIML::calcBetaField()
     scalar meanArray[n + m] = {0};
     scalar stdArray[n + m] = {0};
 
-    for (label i = 0; i <= numInputs + numOutputs; i++)
+    for (label i = 0; i <= n + m; i++)
     {
         meanArray[i] = meanStdVals(0, i);
         stdArray[i] = meanStdVals(1, i);
