@@ -681,7 +681,7 @@ void DASpalartAllmarasFv3FIML::calcBetaField()
 
     forAll(betaFieldInversionML_, cellI)
     {
-        betaFieldInversionML_[cellI] = outputs_[cellI];
+        betaFieldInversionML_[cellI] = outputs_[cellI] * stdArray[9] + meanArray[9];
     }
 
 #elif defined(CODI_AD_FORWARD)
