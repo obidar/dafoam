@@ -346,6 +346,16 @@ public:
         const word designVarName,
         Vec dFdBC);
 
+    /// assign the BC val to OF var
+    void setBCToOFVars(
+        const dictionary& dvSubDict,
+        const scalar& BC);
+    
+    /// get the BC val from OF var
+    void getBCFromOFVars(
+        const dictionary& dvSubDict,
+        scalar& BC);
+
     /// compute dRdBCAD
     void calcdRdBCTPsiAD(
         const Vec xvVec,
@@ -446,7 +456,6 @@ public:
         Vec dFdW);
 
     void calcdRdThermalTPsiAD(
-        const word varName,
         const double* volCoords,
         const double* states,
         const double* thermal,
@@ -539,8 +548,16 @@ public:
     /// register all state variables as the input for reverse-mode AD
     void registerStateVariableInput4AD(const label oldTimeLevel = 0);
 
+    /// deactivate all state variables as the input for reverse-mode AD
+    void deactivateStateVariableInput4AD();
+
     /// register field variables as the input for reverse-mode AD
     void registerFieldVariableInput4AD(
+        const word fieldName,
+        const word fieldType);
+
+    /// deactivate the field variables for reverse-mode AD
+    void deactivateFieldVariableInput4AD(
         const word fieldName,
         const word fieldType);
 
@@ -768,7 +785,6 @@ public:
 
     /// compute the temperature on the conjugate heat transfer patches
     void getThermal(
-        const word outputName,
         const scalar* volCoords,
         const scalar* states,
         scalar* thermal);
@@ -776,14 +792,13 @@ public:
     /// compute the temperature on the conjugate heat transfer patches AD
     void getThermalAD(
         const word inputName,
-        const word outputName,
         const double* volCoords,
         const double* states,
         const double* seeds,
         double* product);
 
     /// assign temperature values to the conjugate heat transfer patches
-    void setThermal(const word varName, scalar* thermal);
+    void setThermal(scalar* thermal);
 
     /// compute the positions, normals, areas, and forces of the desired acoustic patches
     void getAcousticDataInternal(
@@ -801,17 +816,27 @@ public:
 
     /// calculate the radial profile of the force on the propeller surface
     void calcForceProfile(
-        Vec center,
-        Vec aForceL,
-        Vec tForceL,
-        Vec rDistL);
+        const word propName,
+        Vec aForce,
+        Vec tForce,
+        Vec rDist,
+        Vec integralForce);
 
     void calcForceProfileInternal(
-        fvMesh& mesh,
-        const vector& center,
-        scalarList& aForceL,
-        scalarList& tForceL,
-        scalarList& rDistL);
+        const word propName,
+        scalarList& aForce,
+        scalarList& tForce,
+        scalarList& rDist,
+        scalarList& integralForce);
+
+    void calcdForceProfiledXvWAD(
+        const word propName,
+        const word inputMode,
+        const word outputMode,
+        const Vec xvVec,
+        const Vec wVec,
+        Vec psi,
+        Vec dForcedXvW);
 
     void calcdForcedStateTPsiAD(
         const word mode,
@@ -897,6 +922,12 @@ public:
     void updateBoundaryConditions(
         const word fieldName,
         const word fieldType);
+
+    /// update the boundary conditions for all states and intermediate variables
+    void updateStateBoundaryConditions();
+
+    /// calculate the residuals
+    void calcResiduals(label isPC = 0);
 
     /// synchronize the values in DAOption and actuatorDiskDVs_
     void syncDAOptionToActuatorDVs()
@@ -984,7 +1015,7 @@ public:
 
     /// initialize tensorflow functions and interfaces for callback
     void initTensorFlowFuncs(
-        pyComputeInterface computeInterface, 
+        pyComputeInterface computeInterface,
         void* compute,
         pyJacVecProdInterface jacVecProdInterface,
         void* jacVecProd)

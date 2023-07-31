@@ -137,6 +137,10 @@ class DAFoamBuilder(Builder):
                         nodes += 1 + parameters["nNodes"]
         return nodes
 
+    def get_ndof(self):
+        # The number of degrees of freedom used at each output location.
+        return -1
+
 
 class DAFoamGroup(Group):
     """
@@ -208,9 +212,25 @@ class DAFoamGroup(Group):
 
         if self.prop_coupling is not None:
             if self.prop_coupling == "Prop":
+
+                activeProp = None
+                nActiveProps = 0
+
+                wingPropNameList = list(self.DASolver.getOption("wingProp").keys())
+
+                for propName in wingPropNameList:
+                    if self.DASolver.getOption("wingProp")[propName]["active"]:
+                        activeProp = propName
+                        nActiveProps += 1
+
+                if nActiveProps != 1:
+                    raise RuntimeError(
+                        "if prop_coupling = Prop, we should set only one active propeller for wingProp key."
+                    )
+
                 self.add_subsystem(
-                    "profile",
-                    DAFoamPropForce(solver=self.DASolver),
+                    activeProp,
+                    DAFoamPropForce(solver=self.DASolver, propName=activeProp),
                     promotes_inputs=["*"],
                     promotes_outputs=["*"],
                 )
@@ -225,21 +245,12 @@ class DAFoamGroup(Group):
 
         if self.thermal_coupling:
 
-            if self.discipline == "aero":
-                self.add_subsystem(
-                    "get_heat",
-                    DAFoamThermal(solver=self.DASolver, var_name="heatFlux"),
-                    promotes_inputs=["%s_vol_coords" % self.discipline, "%s_states" % self.discipline],
-                    promotes_outputs=["q_convect"],
-                )
-
-            if self.discipline == "thermal":
-                self.add_subsystem(
-                    "get_temp",
-                    DAFoamThermal(solver=self.DASolver, var_name="temperature"),
-                    promotes_inputs=["%s_vol_coords" % self.discipline, "%s_states" % self.discipline],
-                    promotes_outputs=["T_conduct"],
-                )
+            self.add_subsystem(
+                "get_%s" % self.discipline,
+                DAFoamThermal(solver=self.DASolver),
+                promotes_inputs=["*"],
+                promotes_outputs=["*"],
+            )
 
         # Setup unmasking
         self.mphys_set_unmasking(forces=self.struct_coupling)
@@ -612,10 +623,12 @@ class DAFoamSolver(ImplicitComponent):
         couplingInfo = DASolver.getOption("couplingInfo")
         if couplingInfo["aerothermal"]["active"]:
             nCells, nFaces = self.DASolver._getSurfaceSize(self.DASolver.couplingSurfacesGroup)
+            # NOTE: here we create two duplicated surface center coords, so the size is nFaces * 2
+            # one is for transferring near wall temperature, the other is for transferring k/d coefficients
             if self.discipline == "aero":
-                self.add_input("T_convect", distributed=True, shape=nFaces, tags=["mphys_coupling"])
+                self.add_input("T_convect", distributed=True, shape=2 * nFaces, tags=["mphys_coupling"])
             if self.discipline == "thermal":
-                self.add_input("q_conduct", distributed=True, shape=nFaces, tags=["mphys_coupling"])
+                self.add_input("q_conduct", distributed=True, shape=2 * nFaces, tags=["mphys_coupling"])
 
         # now loop over the design variable keys to determine which other variables we need to add
         shapeVarAdded = False
@@ -699,10 +712,10 @@ class DAFoamSolver(ImplicitComponent):
             if couplingInfo["aerothermal"]["active"]:
                 if self.discipline == "aero":
                     T_convect = inputs["T_convect"]
-                    DASolver.solver.setThermal("temperature", T_convect)
+                    DASolver.solver.setThermal(T_convect)
                 elif self.discipline == "thermal":
                     q_conduct = inputs["q_conduct"]
-                    DASolver.solver.setThermal("heatFlux", q_conduct)
+                    DASolver.solver.setThermal(q_conduct)
                 else:
                     raise AnalysisError("discipline not valid!")
 
@@ -786,7 +799,7 @@ class DAFoamSolver(ImplicitComponent):
                     states = outputs["%s_states" % self.discipline]
                     thermal = inputs["q_conduct"]
                     product = np.zeros_like(thermal)
-                    DASolver.solverAD.calcdRdThermalTPsiAD("heatFlux", volCoords, states, thermal, resBar, product)
+                    DASolver.solverAD.calcdRdThermalTPsiAD(volCoords, states, thermal, resBar, product)
                     d_inputs["q_conduct"] += product
                 elif inputName == "T_convect":
                     # calculate [dRdT]^T*Psi for aero
@@ -794,7 +807,7 @@ class DAFoamSolver(ImplicitComponent):
                     states = outputs["%s_states" % self.discipline]
                     thermal = inputs["T_convect"]
                     product = np.zeros_like(thermal)
-                    DASolver.solverAD.calcdRdThermalTPsiAD("temperature", volCoords, states, thermal, resBar, product)
+                    DASolver.solverAD.calcdRdThermalTPsiAD(volCoords, states, thermal, resBar, product)
                     d_inputs["T_convect"] += product
                 else:  # now we deal with general input output names
                     # compute [dRdAOA]^T*Psi using reverse mode AD
@@ -945,6 +958,12 @@ class DAFoamSolver(ImplicitComponent):
                                 DASolver.ksp.destroy()
                             DASolver.ksp = PETSc.KSP().create(self.comm)
                             DASolver.solverAD.createMLRKSPMatrixFree(DASolver.dRdWTPC, DASolver.ksp)
+
+                # if useNonZeroInitGuess is False, we will manually reset self.psi to zero
+                # this is important because we need the correct psi to update the KSP tolerance
+                # in the next line
+                if not self.DASolver.getOption("adjEqnOption")["useNonZeroInitGuess"]:
+                    self.psi.set(0)
 
                 if self.DASolver.getOption("adjEqnOption")["dynAdjustTol"]:
                     # if we want to dynamically adjust the tolerance, call this function. This is mostly used
@@ -1428,13 +1447,10 @@ class DAFoamThermal(ExplicitComponent):
 
     def initialize(self):
         self.options.declare("solver", recordable=False)
-        self.options.declare("var_name", recordable=False)
 
     def setup(self):
 
         self.DASolver = self.options["solver"]
-
-        self.var_name = self.options["var_name"]
 
         self.discipline = self.DASolver.getOption("discipline")
 
@@ -1443,12 +1459,12 @@ class DAFoamThermal(ExplicitComponent):
         self.add_input("%s_vol_coords" % self.discipline, distributed=True, shape_by_conn=True, tags=["mphys_coupling"])
         self.add_input("%s_states" % self.discipline, distributed=True, shape_by_conn=True, tags=["mphys_coupling"])
 
-        if self.var_name == "temperature":
-            self.add_output("T_conduct", distributed=True, shape=self.nCouplingFaces, tags=["mphys_coupling"])
-        elif self.var_name == "heatFlux":
-            self.add_output("q_convect", distributed=True, shape=self.nCouplingFaces, tags=["mphys_coupling"])
+        if self.discipline == "thermal":
+            self.add_output("T_conduct", distributed=True, shape=self.nCouplingFaces * 2, tags=["mphys_coupling"])
+        elif self.discipline == "aero":
+            self.add_output("q_convect", distributed=True, shape=self.nCouplingFaces * 2, tags=["mphys_coupling"])
         else:
-            raise AnalysisError("%s not supported! Options are: temperature or heatFlux" % self.var_name)
+            raise AnalysisError("%s not supported! Options are: aero or thermal" % self.discipline)
 
     def compute(self, inputs, outputs):
 
@@ -1457,22 +1473,22 @@ class DAFoamThermal(ExplicitComponent):
         vol_coords = inputs["%s_vol_coords" % self.discipline]
         states = inputs["%s_states" % self.discipline]
 
-        thermal = np.zeros(self.nCouplingFaces)
+        thermal = np.zeros(self.nCouplingFaces * 2)
 
-        if self.var_name == "temperature":
+        if self.discipline == "thermal":
 
-            self.DASolver.solver.getThermal("temperature", vol_coords, states, thermal)
+            self.DASolver.solver.getThermal(vol_coords, states, thermal)
 
             outputs["T_conduct"] = thermal
 
-        elif self.var_name == "heatFlux":
+        elif self.discipline == "aero":
 
-            self.DASolver.solver.getThermal("heatFlux", vol_coords, states, thermal)
+            self.DASolver.solver.getThermal(vol_coords, states, thermal)
 
             outputs["q_convect"] = thermal
 
         else:
-            raise AnalysisError("%s not supported! Options are: temperature or heatFlux" % self.var_name)
+            raise AnalysisError("%s not supported! Options are: aero or thermal" % self.discipline)
 
     def compute_jacvec_product(self, inputs, d_inputs, d_outputs, mode):
 
@@ -1495,12 +1511,12 @@ class DAFoamThermal(ExplicitComponent):
 
             if "%s_states" % self.discipline in d_inputs:
                 product = np.zeros_like(d_inputs["%s_states" % self.discipline])
-                DASolver.solverAD.getThermalAD("states", "temperature", vol_coords, states, seeds, product)
+                DASolver.solverAD.getThermalAD("states", vol_coords, states, seeds, product)
                 d_inputs["%s_states" % self.discipline] += product
 
             if "%s_vol_coords" % self.discipline in d_inputs:
                 product = np.zeros_like(d_inputs["%s_vol_coords" % self.discipline])
-                DASolver.solverAD.getThermalAD("volCoords", "temperature", vol_coords, states, seeds, product)
+                DASolver.solverAD.getThermalAD("volCoords", vol_coords, states, seeds, product)
                 d_inputs["%s_vol_coords" % self.discipline] += product
 
         if "q_convect" in d_outputs:
@@ -1508,12 +1524,12 @@ class DAFoamThermal(ExplicitComponent):
 
             if "%s_states" % self.discipline in d_inputs:
                 product = np.zeros_like(d_inputs["%s_states" % self.discipline])
-                DASolver.solverAD.getThermalAD("states", "heatFlux", vol_coords, states, seeds, product)
+                DASolver.solverAD.getThermalAD("states", vol_coords, states, seeds, product)
                 d_inputs["%s_states" % self.discipline] += product
 
             if "%s_vol_coords" % self.discipline in d_inputs:
                 product = np.zeros_like(d_inputs["%s_vol_coords" % self.discipline])
-                DASolver.solverAD.getThermalAD("volCoords", "heatFlux", vol_coords, states, seeds, product)
+                DASolver.solverAD.getThermalAD("volCoords", vol_coords, states, seeds, product)
                 d_inputs["%s_vol_coords" % self.discipline] += product
 
 
@@ -1536,8 +1552,10 @@ class DAFoamFaceCoords(ExplicitComponent):
         self.add_input("%s_vol_coords" % self.discipline, distributed=True, shape_by_conn=True, tags=["mphys_coupling"])
 
         nPts, self.nFaces = self.DASolver._getSurfaceSize(groupName)
+        # NOTE: here we create two duplicated surface center coordinates, so the size is nFaces * 6
+        # one is for transferring near wall temperature, the other is for transferring k/d coefficients
         self.add_output(
-            "x_%s_surface0" % self.discipline, distributed=True, shape=self.nFaces * 3, tags=["mphys_coupling"]
+            "x_%s_surface0" % self.discipline, distributed=True, shape=self.nFaces * 6, tags=["mphys_coupling"]
         )
 
     def compute(self, inputs, outputs):
@@ -1545,7 +1563,7 @@ class DAFoamFaceCoords(ExplicitComponent):
         volCoords = inputs["%s_vol_coords" % self.discipline]
 
         nCouplingFaces = self.DASolver.solver.getNCouplingFaces()
-        surfCoords = np.zeros(nCouplingFaces * 3)
+        surfCoords = np.zeros(nCouplingFaces * 6)
         self.DASolver.solver.calcCouplingFaceCoords(volCoords, surfCoords)
 
         outputs["x_%s_surface0" % self.discipline] = surfCoords
@@ -1708,93 +1726,217 @@ class DAFoamPropForce(ExplicitComponent):
     DAFoam component that computes the propeller force and radius profile based on the CFD surface states
     """
 
-    """
     def initialize(self):
         self.options.declare("solver", recordable=False)
+        self.options.declare("propName", recordable=False)
 
     def setup(self):
 
         self.DASolver = self.options["solver"]
+        self.propName = self.options["propName"]
 
         self.discipline = self.DASolver.getOption("discipline")
 
+        # inputs
+        self.nForceSections = self.DASolver.getOption("wingProp")[self.propName]["nForceSections"]
         self.add_input("%s_states" % self.discipline, distributed=True, shape_by_conn=True, tags=["mphys_coupling"])
         self.add_input("%s_vol_coords" % self.discipline, distributed=True, shape_by_conn=True, tags=["mphys_coupling"])
 
-        self.nForceSections = self.DASolver.getOption("wingProp")["nForceSections"]
-        self.add_output("force_profile", distributed=False, shape=3 * self.nForceSections, tags=["mphys_coupling"])
+        # outputs
+        self.add_output("axial_force", distributed=False, shape=self.nForceSections, tags=["mphys_coupling"])
+        self.add_output("tangential_force", distributed=False, shape=self.nForceSections, tags=["mphys_coupling"])
         self.add_output("radial_location", distributed=False, shape=self.nForceSections, tags=["mphys_coupling"])
+        self.add_output("integral_force", distributed=False, shape=2, tags=["mphys_coupling"])
 
     def compute(self, inputs, outputs):
 
         DASolver = self.DASolver
 
-        dafoam_states = inputs["%s_states" % self.discipline]
-        dafoam_xv = inputs["%s_vol_coords" % self.discipline]
+        DASolver.setStates(inputs["%s_states" % self.discipline])
 
-        stateVec = DASolver.array2Vec(dafoam_states)
-        xvVec = DASolver.array2Vec(dafoam_xv)
+        # initialize output to zeros
+        axialForceProfileVec = PETSc.Vec().createSeq(self.nForceSections, bsize=1, comm=PETSc.COMM_SELF)
+        axialForceProfileVec.zeroEntries()
+        tangentialForceProfileVec = PETSc.Vec().createSeq(self.nForceSections, bsize=1, comm=PETSc.COMM_SELF)
+        tangentialForceProfileVec.zeroEntries()
+        radialLocationVec = PETSc.Vec().createSeq(self.nForceSections, bsize=1, comm=PETSc.COMM_SELF)
+        radialLocationVec.zeroEntries()
+        integralForceVec = PETSc.Vec().createSeq(2, bsize=1, comm=PETSc.COMM_SELF)
+        integralForceVec.zeroEntries()
 
-        fProfileVec = PETSc.Vec().createSeq(3 * self.nForceSections, bsize=1, comm=PETSc.COMM_SELF)
-        fProfileVec.zeroEntries()
+        DASolver.solver.calcForceProfile(
+            self.propName.encode(),
+            axialForceProfileVec,
+            tangentialForceProfileVec,
+            radialLocationVec,
+            integralForceVec,
+        )
 
-        sRadiusVec = PETSc.Vec().createSeq(self.nForceSections, bsize=1, comm=PETSc.COMM_SELF)
-        sRadiusVec.zeroEntries()
-
-        DASolver.solver.calcForceProfile(xvVec, stateVec, fProfileVec, sRadiusVec)
-
-        outputs["force_profile"] = DASolver.vec2ArraySeq(fProfileVec)
-        outputs["radial_location"] = DASolver.vec2ArraySeq(sRadiusVec)
+        outputs["axial_force"] = DASolver.vec2ArraySeq(axialForceProfileVec)
+        outputs["tangential_force"] = DASolver.vec2ArraySeq(tangentialForceProfileVec)
+        outputs["radial_location"] = DASolver.vec2ArraySeq(radialLocationVec)
+        outputs["integral_force"] = DASolver.vec2ArraySeq(integralForceVec)
 
     def compute_jacvec_product(self, inputs, d_inputs, d_outputs, mode):
         DASolver = self.DASolver
 
+        if mode == "fwd":
+            om.issue_warning(
+                " mode = %s, but the forward mode functions are not implemented for DAFoam!" % mode,
+                prefix="",
+                stacklevel=2,
+                category=om.OpenMDAOWarning,
+            )
+            return
+
         dafoam_states = inputs["%s_states" % self.discipline]
         dafoam_xv = inputs["%s_vol_coords" % self.discipline]
 
         stateVec = DASolver.array2Vec(dafoam_states)
         xvVec = DASolver.array2Vec(dafoam_xv)
 
-        if mode == "fwd":
-            raise AnalysisError("fwd not implemented!")
-
-        if "force_profile" in d_outputs:
-            fBar = d_outputs["force_profile"]
-            fBarVec = DASolver.array2VecSeq(fBar)
+        if "axial_force" in d_outputs:
+            aFBar = d_outputs["axial_force"]
+            aFBarVec = DASolver.array2VecSeq(aFBar)
 
             if "%s_states" % self.discipline in d_inputs:
-                prodVec = self.DASolver.wVec.duplicate()
+                prodVec = stateVec.duplicate()
                 prodVec.zeroEntries()
-                DASolver.solverAD.calcdForcedStateTPsiAD("dFdW".encode(), xvVec, stateVec, fBarVec, prodVec)
-                pBar = DASolver.vec2Array(prodVec)
-                d_inputs["%s_states" % self.discipline] += pBar
+                DASolver.solverAD.calcdForceProfiledXvWAD(
+                    self.propName.encode(),
+                    "aForce".encode(),
+                    "state".encode(),
+                    xvVec,
+                    stateVec,
+                    aFBarVec,
+                    prodVec,
+                )
+                sBar = DASolver.vec2Array(prodVec)
+                # sBar = self.comm.allreduce(sBar, op=MPI.SUM)
+                d_inputs["%s_states" % self.discipline] += sBar
 
-            # xv has no contribution to the force profile
             if "%s_vol_coords" % self.discipline in d_inputs:
-                prodVec = self.DASolver.xvVec.duplicate()
+                prodVec = xvVec.duplicate()
                 prodVec.zeroEntries()
-                pBar = DASolver.vec2Array(prodVec)
-                d_inputs["%s_vol_coords" % self.discipline] += pBar
+                DASolver.solverAD.calcdForceProfiledXvWAD(
+                    self.propName.encode(),
+                    "aForce".encode(),
+                    "mesh".encode(),
+                    xvVec,
+                    stateVec,
+                    aFBarVec,
+                    prodVec,
+                )
+                vBar = DASolver.vec2Array(prodVec)
+                # vBar = self.comm.allreduce(vBar, op=MPI.SUM)
+                d_inputs["%s_vol_coords" % self.discipline] += vBar
 
-        if "radial_location" in d_outputs:
-            rBar = d_outputs["radial_location"]
-            rBarVec = DASolver.array2VecSeq(rBar)
+        if "tangential_force" in d_outputs:
+            tFBar = d_outputs["tangential_force"]
+            tFBarVec = DASolver.array2VecSeq(tFBar)
 
-            # states have no effect on the radius
             if "%s_states" % self.discipline in d_inputs:
-                prodVec = self.DASolver.wVec.duplicate()
+                prodVec = stateVec.duplicate()
                 prodVec.zeroEntries()
-                pBar = DASolver.vec2Array(prodVec)
-                d_inputs["%s_states" % self.discipline] += pBar
+                DASolver.solverAD.calcdForceProfiledXvWAD(
+                    self.propName.encode(),
+                    "tForce".encode(),
+                    "state".encode(),
+                    xvVec,
+                    stateVec,
+                    tFBarVec,
+                    prodVec,
+                )
+                sBar = DASolver.vec2Array(prodVec)
+                # sBar = self.comm.allreduce(sBar, op=MPI.SUM)
+                d_inputs["%s_states" % self.discipline] += sBar
 
             if "%s_vol_coords" % self.discipline in d_inputs:
-                prodVec = self.DASolver.xvVec.duplicate()
-                DASolver.solverAD.calcdForcedStateTPsiAD("dRdX".encode(), xvVec, stateVec, rBarVec, prodVec)
+                prodVec = xvVec.duplicate()
                 prodVec.zeroEntries()
-                pBar = DASolver.vec2Array(prodVec)
-                d_inputs["%s_vol_coords" % self.discipline] += pBar
-    """
+                DASolver.solverAD.calcdForceProfiledXvWAD(
+                    self.propName.encode(),
+                    "tForce".encode(),
+                    "mesh".encode(),
+                    xvVec,
+                    stateVec,
+                    tFBarVec,
+                    prodVec,
+                )
+                vBar = DASolver.vec2Array(prodVec)
+                # vBar = self.comm.allreduce(vBar, op=MPI.SUM)
+                d_inputs["%s_vol_coords" % self.discipline] += vBar
 
+        if "radial_location" in d_inputs:
+            rDBar = d_outputs["radial_location"]
+            rDBarVec = DASolver.array2VecSeq(rDBar)
+            if "%s_states" % self.discipline in d_inputs:
+                prodVec = stateVec.duplicate()
+                prodVec.zeroEntries()
+                DASolver.solverAD.calcdForceProfiledXvWAD(
+                    self.propName.encode(),
+                    "rDist".encode(),
+                    "state".encode(),
+                    xvVec,
+                    stateVec,
+                    rDBarVec,
+                    prodVec,
+                )
+                sBar = DASolver.vec2Array(prodVec)
+                # sBar = self.comm.allreduce(sBar, op=MPI.SUM)
+                d_inputs["%s_states" % self.discipline] += sBar
+
+            if "%s_vol_coords" % self.discipline in d_inputs:
+                prodVec = xvVec.duplicate()
+                prodVec.zeroEntries()
+                DASolver.solverAD.calcdForceProfiledXvWAD(
+                    self.propName.encode(),
+                    "rDist".encode(),
+                    "mesh".encode(),
+                    xvVec,
+                    stateVec,
+                    rDBarVec,
+                    prodVec,
+                )
+                vBar = DASolver.vec2Array(prodVec)
+                # vBar = self.comm.allreduce(vBar, op=MPI.SUM)
+                d_inputs["%s_vol_coords" % self.discipline] += vBar
+
+        if "integral_force" in d_outputs:
+            iFBar = d_outputs["integral_force"]
+            iFBarVec = DASolver.array2VecSeq(iFBar)
+
+            if "%s_states" % self.discipline in d_inputs:
+                prodVec = stateVec.duplicate()
+                prodVec.zeroEntries()
+                DASolver.solverAD.calcdForceProfiledXvWAD(
+                    self.propName.encode(),
+                    "integralForce".encode(),
+                    "state".encode(),
+                    xvVec,
+                    stateVec,
+                    iFBarVec,
+                    prodVec,
+                )
+                sBar = DASolver.vec2Array(prodVec)
+                # sBar = self.comm.allreduce(sBar, op=MPI.SUM)
+                d_inputs["%s_states" % self.discipline] += sBar
+
+            if "%s_vol_coords" % self.discipline in d_inputs:
+                prodVec = xvVec.duplicate()
+                prodVec.zeroEntries()
+                DASolver.solverAD.calcdForceProfiledXvWAD(
+                    self.propName.encode(),
+                    "integralForce".encode(),
+                    "mesh".encode(),
+                    xvVec,
+                    stateVec,
+                    iFBarVec,
+                    prodVec,
+                )
+                vBar = DASolver.vec2Array(prodVec)
+                # vBar = self.comm.allreduce(vBar, op=MPI.SUM)
+                d_inputs["%s_vol_coords" % self.discipline] += vBar
 
 class DAFoamFvSource(ExplicitComponent):
     """
@@ -1915,7 +2057,7 @@ class DAFoamFvSource(ExplicitComponent):
                             propName.encode(), "aForce".encode(), aVec, tVec, rVec, fVec, cVec, sBarVec, prodVec
                         )
                         aBar = DASolver.vec2ArraySeq(prodVec)
-                        aBar = self.comm.allreduce(aBar, op=MPI.SUM)
+                        # aBar = self.comm.allreduce(aBar, op=MPI.SUM)
                         d_inputs[propName + "_axial_force"] += aBar
 
                     if propName + "_tangential_force" in d_inputs:
@@ -1925,7 +2067,7 @@ class DAFoamFvSource(ExplicitComponent):
                             propName.encode(), "tForce".encode(), aVec, tVec, rVec, fVec, cVec, sBarVec, prodVec
                         )
                         tBar = DASolver.vec2ArraySeq(prodVec)
-                        tBar = self.comm.allreduce(tBar, op=MPI.SUM)
+                        # tBar = self.comm.allreduce(tBar, op=MPI.SUM)
                         d_inputs[propName + "_tangential_force"] += tBar
 
                     if propName + "_radial_location" in d_inputs:
@@ -1935,7 +2077,7 @@ class DAFoamFvSource(ExplicitComponent):
                             propName.encode(), "rDist".encode(), aVec, tVec, rVec, fVec, cVec, sBarVec, prodVec
                         )
                         rBar = DASolver.vec2ArraySeq(prodVec)
-                        rBar = self.comm.allreduce(rBar, op=MPI.SUM)
+                        # rBar = self.comm.allreduce(rBar, op=MPI.SUM)
                         d_inputs[propName + "_radial_location"] += rBar
 
                     if propName + "_integral_force" in d_inputs:
@@ -1945,7 +2087,7 @@ class DAFoamFvSource(ExplicitComponent):
                             propName.encode(), "targetForce".encode(), aVec, tVec, rVec, fVec, cVec, sBarVec, prodVec
                         )
                         fBar = DASolver.vec2ArraySeq(prodVec)
-                        fBar = self.comm.allreduce(fBar, op=MPI.SUM)
+                        # fBar = self.comm.allreduce(fBar, op=MPI.SUM)
                         d_inputs[propName + "_integral_force"] += fBar
 
                     if propName + "_prop_center" in d_inputs:
@@ -1955,7 +2097,7 @@ class DAFoamFvSource(ExplicitComponent):
                             propName.encode(), "center".encode(), aVec, tVec, rVec, fVec, cVec, sBarVec, prodVec
                         )
                         cBar = DASolver.vec2ArraySeq(prodVec)
-                        cBar = self.comm.allreduce(cBar, op=MPI.SUM)
+                        # cBar = self.comm.allreduce(cBar, op=MPI.SUM)
                         d_inputs[propName + "_prop_center"] += cBar
 
 

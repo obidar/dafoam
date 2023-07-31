@@ -127,6 +127,7 @@ case $argm in
     runTests DASolidDisplacementFoam
     runTests DAScalarTransportFoam
     runTests DALaplacianFoam
+    runTests DAHeatTransferFoam
     if [ -f "$DAFOAM_ROOT_PATH/OpenFOAM/sharedLibs/libDAFoamIncompressibleADR.so" ]; then
       runTests MphysAero
       runTestsSerial MphysAeroFixedPoint
@@ -138,6 +139,7 @@ case $argm in
       runTests MphysAeroThermal
       runTests MphysAeroAcoustic
       runTests MphysAeroProp
+      runTests MphysAeroPropCoupled
     fi
     echo " "
     echo "************************************************************"
@@ -198,6 +200,7 @@ case $argm in
     runTests DASolidDisplacementFoam
     runTests DAScalarTransportFoam
     runTests DALaplacianFoam
+    runTests DAHeatTransferFoam
     echo " "
     echo "************************************************************"
     echo "******************* Solid tests passed! ********************"
@@ -241,6 +244,7 @@ case $argm in
       runTests MphysAeroThermal
       runTests MphysAeroAcoustic
       runTests MphysAeroProp
+      runTests MphysAeroPropCoupled
     fi
     echo " "
     echo "************************************************************"

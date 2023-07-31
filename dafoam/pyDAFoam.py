@@ -11,7 +11,7 @@
 
 """
 
-__version__ = "3.0.6"
+__version__ = "3.0.7"
 
 import subprocess
 import os
@@ -486,6 +486,11 @@ class DAOPTION(object):
         ## This option will be used in DAPimpleDyMFoam to simulate dynamicMesh motion
         self.rigidBodyMotion = {"mode": "dummy"}
 
+        ## whether we have iterative BC such as totaPressure
+        ## If True, we will call the correctBoundaryConditions and updateIntermediateVariables
+        ## multiple times to make sure the AD seeds are propagated properly for the iterative BCs.
+        self.hasIterativeBC = False
+
         # *********************************************************************************************
         # ************************************ Advance Options ****************************************
         # *********************************************************************************************
@@ -650,9 +655,11 @@ class DAOPTION(object):
                 "active": False,
                 "nForceSections": 10,
                 "axis": [1.0, 0.0, 0.0],
+                "rotationCenter": [0.0, 0.0, 0.0],
                 "actEps": 0.02,
                 "rotDir": "right",
                 "interpScheme": "Poly4Gauss",
+                "bladeName": "blade",
             },
         }
 
@@ -862,7 +869,7 @@ class PYDAFOAM(object):
         self.solverRegistry = {
             "Incompressible": ["DASimpleFoam", "DASimpleTFoam", "DAPisoFoam", "DAPimpleFoam", "DAPimpleDyMFoam"],
             "Compressible": ["DARhoSimpleFoam", "DARhoSimpleCFoam", "DATurboFoam"],
-            "Solid": ["DASolidDisplacementFoam", "DALaplacianFoam", "DAScalarTransportFoam"],
+            "Solid": ["DASolidDisplacementFoam", "DALaplacianFoam", "DAHeatTransferFoam", "DAScalarTransportFoam"],
         }
 
     def __call__(self):
