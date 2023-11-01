@@ -810,15 +810,6 @@ public:
         return DASolverPtr_->runFPAdj(xvVec, wVec, dFdW, psi);
     }
 
-    /// initialize the call back function pointer
-    void initTensorFlowFuncs(
-        pyComputeInterface computeInterface, 
-        void* compute,
-        pyJacVecProdInterface jacVecProdInterface,
-        void* jacVecProd)
-    {
-        DASolverPtr_->initTensorFlowFuncs(computeInterface, compute, jacVecProdInterface, jacVecProd);
-    }
 };
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

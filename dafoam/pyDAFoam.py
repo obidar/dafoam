@@ -25,10 +25,10 @@ import petsc4py
 from petsc4py import PETSc
 
 petsc4py.init(sys.argv)
-try:
-    import tensorflow as tf
-except ImportError:
-    pass
+#try:
+#    import tensorflow as tf
+#except ImportError:
+#    pass
 
 
 class DAOPTION(object):
@@ -678,13 +678,13 @@ class DAOPTION(object):
         self.primalMinIters = -1
 
         ## tensorflow related functions
-        self.tensorflow = {
-            "active": False,
-            "modelName": "model",
-            "nInputs": 1,
-            "nOutputs": 1,
-            "batchSize": 1000,
-        }
+        #self.tensorflow = {
+        #    "active": False,
+        #    "modelName": "model",
+        #    "nInputs": 1,
+        #    "nOutputs": 1,
+        #    "batchSize": 1000,
+        #}
 
 
 class PYDAFOAM(object):
@@ -858,13 +858,13 @@ class PYDAFOAM(object):
         # initialize the dRdWOldTPsi vectors
         self._initializeTimeAccurateAdjointVectors()
 
-        if self.getOption("tensorflow")["active"]:
-            TensorFlowHelper.options = self.getOption("tensorflow")
-            TensorFlowHelper.initialize()
-            # pass this helper function to the C++ layer
-            self.solver.initTensorFlowFuncs(TensorFlowHelper.predict, TensorFlowHelper.calcJacVecProd)
-            if self.getOption("useAD")["mode"] in ["forward", "reverse"]:
-                self.solverAD.initTensorFlowFuncs(TensorFlowHelper.predict, TensorFlowHelper.calcJacVecProd)
+        #if self.getOption("tensorflow")["active"]:
+        #    TensorFlowHelper.options = self.getOption("tensorflow")
+        #    TensorFlowHelper.initialize()
+        #    # pass this helper function to the C++ layer
+        #    self.solver.initTensorFlowFuncs(TensorFlowHelper.predict, TensorFlowHelper.calcJacVecProd)
+        #    if self.getOption("useAD")["mode"] in ["forward", "reverse"]:
+        #        self.solverAD.initTensorFlowFuncs(TensorFlowHelper.predict, TensorFlowHelper.calcJacVecProd)
 
         Info("pyDAFoam initialization done!")
 
@@ -4121,59 +4121,59 @@ class Info(object):
         MPI.COMM_WORLD.Barrier()
 
 
-class TensorFlowHelper:
-    """
-    TensorFlow helper class.
-    NOTE: this is a static class because the callback function
-    does not accept non-static class members (seg fault)
-    """
+#class TensorFlowHelper:
+#    """
+#    TensorFlow helper class.
+#    NOTE: this is a static class because the callback function
+#    does not accept non-static class members (seg fault)
+#    """
 
-    options = {}
+#    options = {}
 
-    model = None
+#    model = None
 
-    @staticmethod
-    def initialize():
-        """
-        Initialize parameters and load models
-        """
-        Info("Initializing the TensorFlowHelper")
-        TensorFlowHelper.modelName = TensorFlowHelper.options["modelName"]
-        TensorFlowHelper.nInputs = TensorFlowHelper.options["nInputs"]
-        TensorFlowHelper.nOutputs = TensorFlowHelper.options["nOutputs"]
-        TensorFlowHelper.batchSize = TensorFlowHelper.options["batchSize"]
-        TensorFlowHelper.model = tf.keras.models.load_model(TensorFlowHelper.modelName)
+#    @staticmethod
+#    def initialize():
+#        """
+#        Initialize parameters and load models
+#        """
+#        Info("Initializing the TensorFlowHelper")
+#        TensorFlowHelper.modelName = TensorFlowHelper.options["modelName"]
+#        TensorFlowHelper.nInputs = TensorFlowHelper.options["nInputs"]
+#        TensorFlowHelper.nOutputs = TensorFlowHelper.options["nOutputs"]
+#        TensorFlowHelper.batchSize = TensorFlowHelper.options["batchSize"]
+#        TensorFlowHelper.model = tf.keras.models.load_model(TensorFlowHelper.modelName)
 
-        if TensorFlowHelper.nOutputs != 1:
-            raise Error("current version supports nOutputs=1 only!")
+ #       if TensorFlowHelper.nOutputs != 1:
+ #           raise Error("current version supports nOutputs=1 only!")
 
-    @staticmethod
-    def predict(inputs, n, outputs, m):
-        """
-        Calculate the outputs based on the inputs using the saved model
-        """
+#    @staticmethod
+#    def predict(inputs, n, outputs, m):
+#        """
+#        Calculate the outputs based on the inputs using the saved model
+#        """
 
-        inputs_tf = np.reshape(inputs, (-1, TensorFlowHelper.nInputs))
-        outputs_tf = TensorFlowHelper.model.predict(inputs_tf, verbose=False, batch_size=TensorFlowHelper.batchSize)
+#        inputs_tf = np.reshape(inputs, (-1, TensorFlowHelper.nInputs))
+#        outputs_tf = TensorFlowHelper.model.predict(inputs_tf, verbose=False, batch_size=TensorFlowHelper.batchSize)
 
-        for i in range(m):
-            outputs[i] = outputs_tf[i, 0]
+#        for i in range(m):
+#            outputs[i] = outputs_tf[i, 0]
 
-    @staticmethod
-    def calcJacVecProd(inputs, inputs_b, n, outputs, outputs_b, m):
-        """
-        Calculate the gradients of the outputs wrt the inputs
-        """
+#    @staticmethod
+#    def calcJacVecProd(inputs, inputs_b, n, outputs, outputs_b, m):
+#        """
+#        Calculate the gradients of the outputs wrt the inputs
+#        """
 
-        inputs_tf = np.reshape(inputs, (-1, TensorFlowHelper.nInputs))
-        inputs_tf_var = tf.Variable(inputs_tf, dtype=tf.float32)
+#        inputs_tf = np.reshape(inputs, (-1, TensorFlowHelper.nInputs))
+#        inputs_tf_var = tf.Variable(inputs_tf, dtype=tf.float32)
 
-        with tf.GradientTape() as tape:
-            outputs_tf = TensorFlowHelper.model(inputs_tf_var)
+#        with tf.GradientTape() as tape:
+#            outputs_tf = TensorFlowHelper.model(inputs_tf_var)
 
-        gradients_tf = tape.gradient(outputs_tf, inputs_tf_var)
+#        gradients_tf = tape.gradient(outputs_tf, inputs_tf_var)
 
-        for i in range(gradients_tf.shape[0]):
-            for j in range(gradients_tf.shape[1]):
-                idx = i * gradients_tf.shape[1] + j
-                inputs_b[idx] = gradients_tf.numpy()[i, j] * outputs_b[i]
+#        for i in range(gradients_tf.shape[0]):
+#            for j in range(gradients_tf.shape[1]):
+#                idx = i * gradients_tf.shape[1] + j
+#                inputs_b[idx] = gradients_tf.numpy()[i, j] * outputs_b[i]
