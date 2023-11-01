@@ -11,7 +11,7 @@
 
 """
 
-__version__ = "3.0.7"
+__version__ = "3.0.8"
 
 import subprocess
 import os
@@ -491,6 +491,13 @@ class DAOPTION(object):
         ## multiple times to make sure the AD seeds are propagated properly for the iterative BCs.
         self.hasIterativeBC = False
 
+        ## whether to use the constrainHbyA in the pEqn. The DASolvers are similar to OpenFOAM's native
+        ## solvers except that we directly compute the HbyA term without any constraints. In other words,
+        ## we comment out the constrainHbyA line in the pEqn. However, some cases may diverge without
+        ## the constrainHbyA, e.g., the MRF cases with the SST model. Here we have an option to add the
+        ## constrainHbyA back to the primal and adjoint solvers.
+        self.useConstrainHbyA = False
+
         # *********************************************************************************************
         # ************************************ Advance Options ****************************************
         # *********************************************************************************************
@@ -630,8 +637,11 @@ class DAOPTION(object):
         ##     "writeSensMap" : ["shapex", "shapey"]
         self.writeSensMap = ["NONE"]
 
-        ## Whether to write deformed FFDs to the disk during optimization
+        ## Whether to write deformed FFDs to the disk during optimization, i.e., DVGeo.writeTecplot
         self.writeDeformedFFDs = False
+
+        ## Whether to write deformed constraints to disk during optimization, i.e., DVCon.writeTecplot
+        self.writeDeformedConstraints = False
 
         ## The max number of correctBoundaryConditions calls in the updateOFField function.
         self.maxCorrectBCCalls = 10
@@ -717,9 +727,6 @@ class PYDAFOAM(object):
         # initialize comm for parallel communication
         self._initializeComm(comm)
 
-        # check if the combination of options is valid.
-        self._checkOptions()
-
         # Initialize families
         self.families = OrderedDict()
 
@@ -765,6 +772,9 @@ class PYDAFOAM(object):
 
         # initialize mesh information and read grids
         self._readMeshInfo()
+
+        # check if the combination of options is valid.
+        self._checkOptions()
 
         # initialize the mesh point vector xvVec
         self._initializeMeshPointVec()
@@ -1117,6 +1127,7 @@ class PYDAFOAM(object):
         if self.getOption("discipline") not in ["aero", "thermal"]:
             raise Error("discipline: %s not supported. Options are: aero or thermal" % self.getOption("discipline"))
 
+        # check coupling Info
         nActivated = 0
         for coupling in self.getOption("couplingInfo"):
             if self.getOption("couplingInfo")[coupling]["active"]:
@@ -1135,6 +1146,35 @@ class PYDAFOAM(object):
             raise Error(
                 "Only one couplingSurfaceGroups is supported for aerostructural, while %i found" % nAeroStructSurfaces
             )
+
+        # check the patchNames from primalBC dict
+        primalBCDict = self.getOption("primalBC")
+        for bcKey in primalBCDict:
+            try:
+                patches = primalBCDict[bcKey]["patches"]
+            except Exception:
+                continue
+            for patchName in patches:
+                if patchName not in self.boundaries.keys():
+                    raise Error(
+                        "primalBC-%s-patches-%s is not valid. Please use a patchName from the boundaries list: %s"
+                        % (bcKey, patchName, self.boundaries.keys())
+                    )
+
+        # check the patch names from objFunc dict
+        objFuncDict = self.getOption("objFunc")
+        for objKey in objFuncDict:
+            for part in objFuncDict[objKey]:
+                try:
+                    patches = objFuncDict[objKey][part]["patches"]
+                except Exception:
+                    continue
+                for patchName in patches:
+                    if patchName not in self.boundaries.keys():
+                        raise Error(
+                            "objFunc-%s-%s-patches-%s is not valid. Please use a patchName from the boundaries list: %s"
+                            % (objKey, part, patchName, self.boundaries.keys())
+                        )
 
         # check other combinations...
 
@@ -1271,16 +1311,11 @@ class PYDAFOAM(object):
         Write the deformed FFDs to the disk during optimization
         """
 
-        if self.comm.rank == 0:
-            print("writeDeformedFFDs is deprecated since v3.0.1!")
-
-        """
         if self.getOption("writeDeformedFFDs"):
             if counter is None:
-                self.DVGeo.writeTecplot("deformedFFD.dat", self.nSolveAdjoints)
+                self.DVGeo.writeTecplot("deformedFFD_%d.dat" % self.nSolveAdjoints)
             else:
-                self.DVGeo.writeTecplot("deformedFFD.dat", counter)
-        """
+                self.DVGeo.writeTecplot("deformedFFD_%d.dat" % counter)
 
     def writeTotalDeriv(self, fileName, sens, evalFuncs):
         """

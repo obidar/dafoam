@@ -4,15 +4,14 @@
     Version : v3
 
     Description:
-        Child class for mesh quality with KS function
+        Child class for location of a select patch, e.g., maxRadius
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef DAObjFuncMeshQualityKS_H
-#define DAObjFuncMeshQualityKS_H
+#ifndef DAObjFuncLocation_H
+#define DAObjFuncLocation_H
 
 #include "DAObjFunc.H"
-#include "polyMeshTools.H"
 #include "addToRunTimeSelectionTable.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
@@ -21,34 +20,38 @@ namespace Foam
 {
 
 /*---------------------------------------------------------------------------*\
-      Class DAObjFuncMeshQualityKS Declaration
+      Class DAObjFuncLocation Declaration
 \*---------------------------------------------------------------------------*/
 
-class DAObjFuncMeshQualityKS
+class DAObjFuncLocation
     : public DAObjFunc
 {
 
 protected:
-
     /// coefficient for the KS function
-    scalar coeffKS_;
+    scalar coeffKS_ = 1.0;
 
-    /// which mesh quality metric to use
-    word metric_;
+    /// location mode to use
+    word mode_;
 
-    /// whether to include the processor patches for mesh quality calculation
-    label includeProcPatches_;
+    /// axis for radius computation
+    vector axis_ = {1, 0, 0};
 
-    /// a list of included faces for the mesh quality calculation
-    labelList includeFaceList_;
+    /// center for radius computation
+    vector center_ = {0, 0, 0};
 
+    /// maxRadius patchI
+    label maxRPatchI_ = -1;
+
+    /// maxRadius patchI
+    label maxRFaceI_ = -1;
 
 public:
-    TypeName("meshQualityKS");
+    TypeName("location");
     // Constructors
 
     //- Construct from components
-    DAObjFuncMeshQualityKS(
+    DAObjFuncLocation(
         const fvMesh& mesh,
         const DAOption& daOption,
         const DAModel& daModel,
@@ -59,7 +62,7 @@ public:
         const dictionary& objFuncDict);
 
     //- Destructor
-    virtual ~DAObjFuncMeshQualityKS()
+    virtual ~DAObjFuncLocation()
     {
     }
 
