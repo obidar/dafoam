@@ -382,8 +382,9 @@ void DAObjFuncFieldInversion::calcObjFunc(
                 forces.x() = fN[faceI].x() + fT[faceI].x();
                 forces.y() = fN[faceI].y() + fT[faceI].y();
                 forces.z() = fN[faceI].z() + fT[faceI].z();
-                aeroCoeff += scale_ * (forces & forceDir_);
+                aeroCoeff += forces & forceDir_;
             }
+            aeroCoeff = scale_ * aeroCoeff; // normalise the aeroCoeff, where scale = 1 / 0.5*rho*U^2*A
         }
         // need to reduce the sum of all forces across all processors
         reduce(aeroCoeff, sumOp<scalar>());
