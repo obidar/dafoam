@@ -123,9 +123,12 @@ protected:
     /// reference field (e.g. velocity for DNS)
     volVectorField UData_; 
 
-    /// the reference pressure field data
+    /// the reference velocity field data
     volScalarField USingleComponentData_;
 
+    /// the reference surface drag data
+    volScalarField surfaceDragData_; 
+    
 public:
     TypeName("kOmegaFieldInversionOmega");
     // Constructors

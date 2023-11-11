@@ -61,8 +61,11 @@ protected:
     /// reference field (e.g. velocity for DNS)
     volVectorField UData_; 
 
-    /// the reference pressure field data
+    /// the reference velocity field data
     volScalarField USingleComponentData_;
+
+    /// the surface drag data
+    volScalarField surfaceDragData_; 
 
     //- Wall distance
     //  Note: different to wall distance in parent RASModel

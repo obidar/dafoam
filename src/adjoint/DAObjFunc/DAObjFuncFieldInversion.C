@@ -397,6 +397,68 @@ void DAObjFuncFieldInversion::calcObjFunc(
             objFuncValue = weight_ * objFuncValue;
         }
     }
+    else if(data_ == "surfaceDragData")
+    {
+        stateName_ = "surfaceDrag";
+        stateRefName_ = data_;
+
+        scalarList dir; // decides if computing lift or drag
+        objFuncDict_.readEntry<scalarList>("direction", dir);
+        vector forceDir_; 
+        forceDir_[0] = dir[0];
+        forceDir_[1] = dir[1];
+        forceDir_[2] = dir[2];
+        wordList patchNames_; 
+        objFuncDict_.readEntry<wordList>("patchNames", patchNames_);
+
+        const volScalarField& p = db.lookupObject<volScalarField>("p");
+        const surfaceVectorField::Boundary& Sfb = mesh_.Sf().boundaryField();
+        tmp<volSymmTensorField> tdevRhoReff = daTurb_.devRhoReff();
+        const volSymmTensorField::Boundary& devRhoReffb = tdevRhoReff().boundaryField();
+        volScalarField& surfaceDrag = const_cast<volScalarField&>(db.lookupObject<volScalarField>(stateName_));
+        const volScalarField surfaceDragRef = db.lookupObject<volScalarField>(stateRefName_);
+
+        vector forces(vector::zero);
+
+        forAll(patchNames_, cI)
+        {
+            // get the patch id label
+            label patchI = mesh_.boundaryMesh().findPatchID(patchNames_[cI]);
+
+            // create a shorter handle for the boundary patch
+            const fvPatch& patch = mesh_.boundary()[patchI];
+
+            // normal force
+            vectorField fN(Sfb[patchI] * p.boundaryField()[patchI]);
+
+            // tangential force
+            vectorField fT(Sfb[patchI] & devRhoReffb[patchI]);
+
+            forAll(patch, faceI)
+            {
+                scalar bSurfaceDragRef = surfaceDragRef.boundaryField()[patchI][faceI];
+                forces.x() = fN[faceI].x() + fT[faceI].x();
+                forces.y() = fN[faceI].y() + fT[faceI].y();
+                forces.z() = fN[faceI].z() + fT[faceI].z();
+                scalar bSurfaceDrag = scale_ * (forces & forceDir_); // where scale = 1 or 1 / dynamicPressure
+
+                surfaceDrag.boundaryFieldRef()[patchI][faceI] = bSurfaceDrag;
+
+                if (bSurfaceDragRef < 1e16)
+                {
+                    // calculate the objective function
+                    objFuncValue += sqr(bSurfaceDrag - bSurfaceDragRef);
+                }
+            }
+        }
+        // need to reduce the sum of all objectives across all processors
+        reduce(objFuncValue, sumOp<scalar>());
+
+        if (weightedSum_ == true)
+        {
+            objFuncValue = weight_ * objFuncValue;
+        }
+    }
     else if (data_ == "surfaceFrictionDataModified")
     {
         /* 

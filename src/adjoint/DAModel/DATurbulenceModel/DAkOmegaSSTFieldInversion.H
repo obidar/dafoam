@@ -190,8 +190,11 @@ protected:
     /// reference field (e.g. velocity for DNS)
     volVectorField UData_; 
 
-    /// the reference pressure field data
+    /// the reference velocity field data
     volScalarField USingleComponentData_;
+
+    /// the reference surface drag data
+    volScalarField surfaceDragData_; 
     
     /// Name of turbulent transport equation to modify: can be k, omega, or all
     /// if k OR omega is selected the field inversion modification is: ProdTerm(k or omega)*betaFieldInversion

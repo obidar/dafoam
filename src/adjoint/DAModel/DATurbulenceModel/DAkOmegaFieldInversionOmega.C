@@ -113,7 +113,9 @@ DAkOmegaFieldInversionOmega::DAkOmegaFieldInversionOmega(
       UData_(const_cast<volVectorField&>(
           mesh.thisDb().lookupObject<volVectorField>("UData"))),
       USingleComponentData_(const_cast<volScalarField&>(
-          mesh.thisDb().lookupObject<volScalarField>("USingleComponentData")))
+          mesh.thisDb().lookupObject<volScalarField>("USingleComponentData"))),
+      surfaceDragData_(const_cast<volScalarField&>(
+          mesh.thisDb().lookupObject<volScalarField>("surfaceDragData"))) 
 {
 
     // initialize printInterval_ we need to check whether it is a steady state
