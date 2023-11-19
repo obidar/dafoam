@@ -195,7 +195,8 @@ protected:
 
     /// the reference surface drag data
     volScalarField surfaceDragData_; 
-    
+    volScalarField surfaceDrag_; 
+
     /// Name of turbulent transport equation to modify: can be k, omega, or all
     /// if k OR omega is selected the field inversion modification is: ProdTerm(k or omega)*betaFieldInversion
     /// if all is selected the modification is: ProdTerm(k)*betaField, ProdTerm(omega)*(1.0/betaField)

@@ -66,6 +66,7 @@ protected:
 
     /// the surface drag data
     volScalarField surfaceDragData_; 
+    volScalarField surfaceDrag_;
 
     //- Wall distance
     //  Note: different to wall distance in parent RASModel

@@ -195,6 +195,8 @@ DAkOmegaSSTFieldInversion::DAkOmegaSSTFieldInversion(
           mesh.thisDb().lookupObject<volScalarField>("USingleComponentData"))),
       surfaceDragData_(const_cast<volScalarField&>(
           mesh.thisDb().lookupObject<volScalarField>("surfaceDragData"))),
+      surfaceDrag_(const_cast<volScalarField&>(
+          mesh.thisDb().lookupObject<volScalarField>("surfaceDrag"))),
       y_(mesh_.thisDb().lookupObject<volScalarField>("yWall")) 
 {
 

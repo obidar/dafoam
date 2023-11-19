@@ -473,7 +473,7 @@ void DAObjFuncFieldInversion::calcObjFunc(
         literature.)
         */
 
-        stateName_ = "surfaceFriction_";
+        stateName_ = "surfaceFriction";
         stateRefName_ = data_; 
 
         wordList patchNames_; 
