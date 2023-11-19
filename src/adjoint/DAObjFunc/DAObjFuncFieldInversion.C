@@ -414,6 +414,7 @@ void DAObjFuncFieldInversion::calcObjFunc(
 
         const volScalarField& p = db.lookupObject<volScalarField>("p");
         const surfaceVectorField::Boundary& Sfb = mesh_.Sf().boundaryField();
+        const surfaceScalarField::Boundary& magSfb = mesh_.magSf().boundaryField();
         tmp<volSymmTensorField> tdevRhoReff = daTurb_.devRhoReff();
         const volSymmTensorField::Boundary& devRhoReffb = tdevRhoReff().boundaryField();
         volScalarField& surfaceDrag = const_cast<volScalarField&>(db.lookupObject<volScalarField>(stateName_));
@@ -435,13 +436,16 @@ void DAObjFuncFieldInversion::calcObjFunc(
             // tangential force
             vectorField fT(Sfb[patchI] & devRhoReffb[patchI]);
 
+            // boundary face area
+            scalarField boundaryFaceArea(magSfb[patchI]);
+
             forAll(patch, faceI)
             {
                 scalar bSurfaceDragRef = surfaceDragRef.boundaryField()[patchI][faceI];
                 forces.x() = fN[faceI].x() + fT[faceI].x();
                 forces.y() = fN[faceI].y() + fT[faceI].y();
                 forces.z() = fN[faceI].z() + fT[faceI].z();
-                scalar bSurfaceDrag = scale_ * (forces & forceDir_); // where scale = 1 or 1 / dynamicPressure
+                scalar bSurfaceDrag = (forces & forceDir_) /  (scale_ * boundaryFaceArea[faceI]); // where scale = dynamicPressure
 
                 surfaceDrag.boundaryFieldRef()[patchI][faceI] = bSurfaceDrag;
 
