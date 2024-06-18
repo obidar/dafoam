@@ -12,7 +12,7 @@ import numpy as np
 
 gcomm = MPI.COMM_WORLD
 
-os.chdir("./input/NACA0012")
+os.chdir("./reg_test_files-main/NACA0012")
 
 if gcomm.rank == 0:
     os.system("rm -rf 0 processor*")
@@ -39,12 +39,7 @@ aeroOptions = {
     "solverName": "DASimpleFoam",
     "primalMinResTol": 5e-5,
     "primalMinResTolDiff": 1e4,
-    "tensorflow": {
-        "active": True,
-        "modelName": "model",
-        "nInputs": 9,
-        "nOutputs": 1,
-    },
+    "tensorflow": {"active": True, "model": {"predictBatchSize": 1000, "nInputs": 9}},
     "primalBC": {
         "U0": {"variable": "U", "patches": ["inout"], "value": [U0, 0.0, 0.0]},
         "p0": {"variable": "p", "patches": ["inout"], "value": [p0]},

@@ -90,7 +90,7 @@ if (daOptionPtr_->getAllOptions().subDict("useAD").getWord("mode") == "forward")
     else if (type == "ACTD")
     {
         // for ACTD derivs
-        scalarList actDVListForwardAD(9);
+        scalarList actDVListForwardAD(13);
 
         label seedIndex = daOptionPtr_->getAllOptions().subDict("useAD").getLabel("seedIndex");
 
@@ -103,7 +103,7 @@ if (daOptionPtr_->getAllOptions().subDict("useAD").getWord("mode") == "forward")
         if (source == "cylinderAnnulusSmooth")
         {
             // get the design variable vals
-            for (label i = 0; i < 9; i++)
+            for (label i = 0; i < 13; i++)
             {
                 if (i == seedIndex)
                 {
@@ -370,6 +370,21 @@ if (daOptionPtr_->getAllOptions().subDict("useAD").getWord("mode") == "forward")
                 }
             }
         }
+    }
+    else if (type == "RegPar")
+    {
+        // for ACTD derivs
+        scalar seed = 0.0;
+
+        word modelName = dvSubDict.getWord("modelName");
+
+        label seedIndex = daOptionPtr_->getAllOptions().subDict("useAD").getLabel("seedIndex");
+
+        seed = daRegressionPtr_->getParameter(modelName, seedIndex);
+
+        seed.setGradient(1.0);
+
+        daRegressionPtr_->setParameter(modelName, seedIndex, seed);
     }
 }
 

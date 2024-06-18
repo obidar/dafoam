@@ -21,7 +21,7 @@ if len(sys.argv) != 1:
 
 gcomm = MPI.COMM_WORLD
 
-os.chdir("./input/NACA0012")
+os.chdir("./reg_test_files-main/NACA0012")
 
 if gcomm.rank == 0:
     os.system("rm -rf 0 processor*")
@@ -162,7 +162,7 @@ DVGeo = DVGeometry(FFDFile)
 nTwists = DVGeo.addRefAxis("bodyAxis", xFraction=0.25, alignIndex="k")
 
 
-def alpha(val, geo):
+def alpha(val, DASolver):
     aoa = val[0] * np.pi / 180.0
     inletU = [float(U0 * np.cos(aoa)), float(U0 * np.sin(aoa)), 0]
     DASolver.setOption("primalBC", {"U0": {"variable": "U", "patches": ["inout"], "value": inletU}})
@@ -173,13 +173,16 @@ def actuator(val, geo):
     actX = float(val[0])
     actY = float(val[1])
     actZ = float(val[2])
-    actR1 = float(val[3])
-    actR2 = float(val[4])
-    actScale = float(val[5])
-    actPOD = float(val[6])
-    actExpM = float(val[7])
-    actExpN = float(val[8])
-    T = float(val[9])
+    actDirx = float(val[3])
+    actDiry = float(val[4])
+    actDirz = float(val[5])
+    actR1 = float(val[6])
+    actR2 = float(val[7])
+    actScale = float(val[8])
+    actPOD = float(val[9])
+    actExpM = float(val[10])
+    actExpN = float(val[11])
+    T = float(val[12])
     DASolver.setOption(
         "fvSource",
         {
@@ -187,7 +190,7 @@ def actuator(val, geo):
                 "type": "actuatorDisk",
                 "source": "cylinderAnnulusSmooth",
                 "center": [actX, actY, actZ],
-                "direction": [1.0, 0.0, 0.0],
+                "direction": [actDirx, actDiry, actDirz],
                 "innerRadius": actR1,
                 "outerRadius": actR2,
                 "rotDir": "right",
@@ -209,11 +212,10 @@ pts = DVGeo.getLocalIndex(0)
 indexList = pts[1:4, 1, 0].flatten()
 PS = geo_utils.PointSelect("list", indexList)
 DVGeo.addLocalDV("shapey", lower=-1.0, upper=1.0, axis="y", scale=1.0, pointSelect=PS)
-DVGeo.addGlobalDV("alpha", [alpha0], alpha, lower=-10.0, upper=10.0, scale=1.0)
 # actuator
 DVGeo.addGlobalDV(
     "actuator",
-    value=[-0.55, 0.0, 0.05, 0.01, 0.4, 100.0, 0.0, 1.0, 0.5, 1.0],
+    value=[-0.55, 0.0, 0.05, 1.0, 0.0, 0.0, 0.01, 0.4, 100.0, 0.0, 1.0, 0.5, 1.0],
     func=actuator,
     lower=-100.0,
     upper=100.0,
@@ -222,6 +224,7 @@ DVGeo.addGlobalDV(
 
 # DAFoam
 DASolver = PYDAFOAM(options=aeroOptions, comm=gcomm)
+DASolver.addInternalDV("alpha", [alpha0], alpha, lower=-10.0, upper=10.0, scale=1.0)
 DASolver.setDVGeo(DVGeo)
 mesh = USMesh(options=meshOptions, comm=gcomm)
 DASolver.printFamilyList()
@@ -250,8 +253,10 @@ if calcFDSens == 1:
 else:
     DASolver.runColoring()
     xDV = DVGeo.getValues()
+    iDV = DASolver.getInternalDVDict()
+    allDV = {**xDV, **iDV}
     funcs = {}
-    funcs, fail = optFuncs.calcObjFuncValues(xDV)
+    funcs, fail = optFuncs.calcObjFuncValues(allDV)
     # test getForces
     forces = DASolver.getForces()
     fNorm = np.linalg.norm(forces.flatten())
@@ -259,7 +264,7 @@ else:
     funcs["forces"] = fNormSum
     
     funcsSens = {}
-    funcsSens, fail = optFuncs.calcObjFuncSens(xDV, funcs)
+    funcsSens, fail = optFuncs.calcObjFuncSens(allDV, funcs)
     if gcomm.rank == 0:
         reg_write_dict(funcs, 1e-8, 1e-10)
         reg_write_dict(funcsSens, 1e-4, 1e-6)

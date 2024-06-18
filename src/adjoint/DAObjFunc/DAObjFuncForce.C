@@ -114,6 +114,7 @@ DAObjFuncForce::DAObjFuncForce(
 
     // now replace nut with the corrected name for the selected turbulence model
     daModel.correctModelStates(objFuncConInfo_[0]);
+
 }
 
 /// calculate the value of objective function
@@ -189,6 +190,9 @@ void DAObjFuncForce::calcObjFunc(
 
     // need to reduce the sum of force across all processors
     reduce(objFuncValue, sumOp<scalar>());
+
+    // check if we need to calculate refDiff.
+    this->calcRefVar(objFuncValue);
 
     return;
 }

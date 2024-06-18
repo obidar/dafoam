@@ -56,6 +56,7 @@ DAObjFuncMassFlowRate::DAObjFuncMassFlowRate(
 #endif
 
     objFuncDict_.readEntry<scalar>("scale", scale_);
+
 }
 
 /// calculate the value of objective function
@@ -117,6 +118,9 @@ void DAObjFuncMassFlowRate::calcObjFunc(
 
     // need to reduce the sum of force across all processors
     reduce(objFuncValue, sumOp<scalar>());
+
+    // check if we need to calculate refDiff.
+    this->calcRefVar(objFuncValue);
 
     return;
 }

@@ -149,6 +149,14 @@ void DAUtility::pyDict2OFDict(
             valSetLabel.setSize(label(listSize));
             List<word> valSetWord;
             valSetWord.setSize(label(listSize));
+            // we also support scalarListList or labelListList
+            List<List<scalar>> valSetScalarList;
+            valSetScalarList.setSize(label(listSize));
+            List<List<label>> valSetLabelList;
+            valSetLabelList.setSize(label(listSize));
+
+            label isListListScalar = 0;
+            label isListListLabel = 0;
 
             // need to check what type of list this is
             // by checking its first element
@@ -179,11 +187,48 @@ void DAUtility::pyDict2OFDict(
                     label valSet = PyObject_IsTrue(valueListJ);
                     valSetLabel[j] = valSet;
                 }
+                else if (tmpTypeWord == "list")
+                {
+                    // it is a ListList, we need to add values to
+                    // valSetScalarList or valSetLabelList
+                    // NOTE: we support only labelListList or scalarListList
+                    // size of the list
+                    Py_ssize_t listSize1 = PyList_Size(valueListJ);
+                    PyObject* tmp1 = PyList_GetItem(valueListJ, 0);
+                    const char* tmpType1 = Py_TYPE(tmp1)->tp_name;
+                    word tmpTypeWord1 = word(tmpType1);
+
+                    valSetLabelList[j].setSize(listSize1);
+                    valSetScalarList[j].setSize(listSize1);
+
+                    // assign value to the OpenFOAM listList
+                    for (label k = 0; k < listSize1; k++)
+                    {
+                        PyObject* valueListK = PyList_GetItem(valueListJ, k);
+                        if (tmpTypeWord1 == "int")
+                        {
+                            long valSet = PyLong_AsLong(valueListK);
+                            valSetLabelList[j][k] = label(valSet);
+                            isListListLabel = 1;
+                        }
+                        else if (tmpTypeWord1 == "float")
+                        {
+                            scalar valSet = PyFloat_AS_DOUBLE(valueListK);
+                            valSetScalarList[j][k] = valSet;
+                            isListListScalar = 1;
+                        }
+                        else
+                        {
+                            FatalErrorIn("pyDict2OFDict") << "listList only supports double and int"
+                                                          << abort(FatalError);
+                        }
+                    }
+                }
                 else
                 {
                     FatalErrorIn("pyDict2OFDict") << "Type: <" << tmpTypeWord << "> for " << keyUTF8
                                                   << " list is not supported! Options are:"
-                                                  << " str, int, bool, and float!"
+                                                  << " str, int, bool, float, and list!"
                                                   << abort(FatalError);
                 }
             }
@@ -204,6 +249,17 @@ void DAUtility::pyDict2OFDict(
             else if (tmpTypeWord == "bool")
             {
                 ofDict.add(keyUTF8, valSetLabel, overwrite);
+            }
+
+            // if there are listLists, add them separately
+            if (isListListLabel)
+            {
+                ofDict.add(keyUTF8, valSetLabelList, overwrite);
+            }
+
+            if (isListListScalar)
+            {
+                ofDict.add(keyUTF8, valSetScalarList, overwrite);
             }
         }
         else if (word(valueType) == "dict")
@@ -672,6 +728,67 @@ label DAUtility::isValueCloseToRef(
     else
     {
         return 0;
+    }
+}
+
+void DAUtility::primalResidualControl(
+    const SolverPerformance<scalar>& solverP,
+    const label printToScreen,
+    const word varName)
+{
+    /*
+    Description:
+        Setup maximal residual control and print the residual as needed
+    */
+
+    // calculate the initial residual mag and set it to primalResidualNorms_
+
+    scalar initRes = solverP.initialResidual();
+
+    if (initRes > DAUtility::primalMaxInitRes_)
+    {
+        DAUtility::primalMaxInitRes_ = initRes;
+    }
+
+    if (printToScreen)
+    {
+        Info << varName << " Initial residual: " << solverP.initialResidual() << endl
+             << varName << "   Final residual: " << solverP.finalResidual() << endl;
+    }
+}
+
+void DAUtility::primalResidualControl(
+    const SolverPerformance<vector>& solverP,
+    const label printToScreen,
+    const word varName)
+{
+    /*
+    Description:
+        Setup maximal residual control and print the residual as needed
+    */
+
+    // calculate the initial residual mag and set it to primalResidualNorms_
+
+    // for vectors, we need to use the median value for the residual
+    // this is because we often need to run 2D simulations with symmetry 
+    // BC, so one component of the residual vector, which is related to the symmetry BC,
+    // may be high while the other two components' residuals are low.
+    // In this case, we can use the median value for the residual vector, which better
+    // represents the convergence.
+
+    vector initRes = solverP.initialResidual();
+    scalarList initResList = {initRes[0], initRes[1], initRes[2]};
+    sort(initResList);
+
+    if (initResList[1] > DAUtility::primalMaxInitRes_)
+    {
+        DAUtility::primalMaxInitRes_ = initResList[1];
+    }
+
+    if (printToScreen)
+    {
+        Info << varName << " Initial residual: " << solverP.initialResidual() << endl
+             << varName << "   Final residual: " << solverP.finalResidual() << endl;
     }
 }
 

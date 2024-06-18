@@ -8,6 +8,8 @@ DAOption/DAOption.C
 
 DAModel/DAModel.C
 
+DARegression/DARegression.C
+
 DAStateInfo/DAStateInfo.C
 DAStateInfo/DAStateInfoSolidDisplacementFoam.C
 DAStateInfo/DAStateInfoLaplacianFoam.C
@@ -27,6 +29,7 @@ DAObjFunc/DAObjFuncWallHeatFlux.C
 DAObjFunc/DAObjFuncPatchMean.C
 
 DAFvSource/DAFvSource.C
+DAFvSource/DAFvSourceHeatSource.C
 
 DAResidual/DAResidual.C
 DAResidual/DAResidualDummy.C

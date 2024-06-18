@@ -21,7 +21,7 @@ while (piso.correctNonOrthogonal())
     // and final residuals
     SolverPerformance<scalar> solverP = pEqn.solve(mesh.solver(p.select(piso.finalInnerIter())));
 
-    this->primalResidualControl<scalar>(solverP, printToScreen, printInterval, "p");
+    DAUtility::primalResidualControl(solverP, printToScreen, "p");
 
     if (piso.finalNonOrthogonalIter())
     {
@@ -34,5 +34,10 @@ if (printToScreen)
 #include "continuityErrsPython.H"
 }
 
+// bound p
+DAUtility::boundVar(allOptions, p, printToScreen);
+
 U = HbyA - rAU * fvc::grad(p);
+// bound U
+DAUtility::boundVar(allOptions, U, printToScreen);
 U.correctBoundaryConditions();

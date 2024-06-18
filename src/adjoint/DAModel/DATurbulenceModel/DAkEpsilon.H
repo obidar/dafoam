@@ -89,6 +89,10 @@ protected:
     volScalarField kRes_;
     //@}
 
+    /// beta field for field inversion
+    volScalarField betaFIK_;
+    volScalarField betaFIEpsilon_;
+
     /// cell-center epsilon values near the wall, this is to fix the issue that the
     /// epsilonWallFunction will try to modify epsilon values for the cells near walls
     /// this will cause issue for FD-based partial derivatives, so here we basically
@@ -97,9 +101,6 @@ protected:
 
     /// whether to solve for turb states
     label solveTurbState_ = 0;
-
-    /// time step interval to print residual
-    label printInterval_;
 
 public:
     TypeName("kEpsilon");
@@ -140,7 +141,7 @@ public:
     virtual void calcResiduals(const dictionary& options);
 
     /// solve the residual equations and update the state
-    virtual void correct();
+    virtual void correct(label printToScreen);
 
     /// save near wall epsilon values to epsilonNearWall_
     void saveEpsilonNearWall();
@@ -150,6 +151,19 @@ public:
 
     /// specially treatment to correct epsilon BC
     void correctEpsilonBoundaryConditions();
+
+    /// return the diag(), upper(), and lower() scalarFields from the turbulence model's fvMatrix
+    virtual void getFvMatrixFields(
+        const word varName,
+        scalarField& diag,
+        scalarField& upper,
+        scalarField& lower);
+    
+    /// return the value of the destruction term from the turbulence model
+    virtual void getTurbProdOverDestruct(volScalarField& PoD) const;
+
+    /// return the value of the convective over production term from the turbulence model
+    virtual void getTurbConvOverProd(volScalarField& CoP) const;
 };
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

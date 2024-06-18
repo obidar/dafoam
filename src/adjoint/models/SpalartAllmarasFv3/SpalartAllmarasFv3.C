@@ -53,7 +53,6 @@ SpalartAllmarasFv3<BasicTurbulenceModel>::SpalartAllmarasFv3(
               IOobject::MUST_READ,
               IOobject::AUTO_WRITE),
           this->mesh_),
-
       y_(wallDist::New(this->mesh_).y())
 {
 }

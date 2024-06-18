@@ -96,6 +96,10 @@ protected:
     volScalarField kRes_;
     //@}
 
+    /// beta field for field inversion
+    volScalarField betaFIK_;
+    volScalarField betaFIOmega_;
+
     /// cell-center omega values near the wall, this is to fix the issue that the
     /// omegaWallFunction will try to modify omega values for the cells near walls
     /// this will cause issue for FD-based partial derivatives, so here we basically
@@ -104,9 +108,6 @@ protected:
 
     /// whether to solve for turb states
     label solveTurbState_ = 0;
-
-    /// time step interval to print residual
-    label printInterval_;
 
 public:
     TypeName("kOmega");
@@ -147,7 +148,7 @@ public:
     virtual void calcResiduals(const dictionary& options);
 
     /// solve the residual equations and update the state
-    virtual void correct();
+    virtual void correct(label printToScreen);
 
     /// save near wall omega values to omegaNearWall_
     void saveOmegaNearWall();
@@ -157,6 +158,19 @@ public:
 
     /// specially treatment to correct epsilon BC
     void correctOmegaBoundaryConditions();
+
+    /// return the diag(), upper(), and lower() scalarFields from the turbulence model's fvMatrix
+    virtual void getFvMatrixFields(
+        const word varName,
+        scalarField& diag,
+        scalarField& upper,
+        scalarField& lower);
+    
+    /// return the value of the destruction term from the turbulence model
+    virtual void getTurbProdOverDestruct(volScalarField& PoD) const;
+
+    /// return the value of the convective over production term from the turbulence model
+    virtual void getTurbConvOverProd(volScalarField& CoP) const;
 };
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

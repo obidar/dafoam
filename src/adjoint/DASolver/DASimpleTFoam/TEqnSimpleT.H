@@ -6,8 +6,7 @@
 
     fvScalarMatrix TEqn(
         fvm::div(phi, T)
-        - fvm::laplacian(alphaEff, T)
-    );
+        - fvm::laplacian(alphaEff, T));
 
     TEqn.relax();
 
@@ -15,5 +14,8 @@
     // and final residuals
     SolverPerformance<scalar> solverT = TEqn.solve();
 
-    this->primalResidualControl<scalar>(solverT, printToScreen, printInterval, "T");
+    DAUtility::primalResidualControl(solverT, printToScreen, "T");
+
+    // bound T
+    DAUtility::boundVar(allOptions, T, printToScreen);
 }

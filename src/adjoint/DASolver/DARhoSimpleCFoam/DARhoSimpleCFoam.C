@@ -129,11 +129,15 @@ label DARhoSimpleCFoam::solvePrimal(
         }
     }
 
-    primalMinRes_ = 1e10;
+    // if useMeanStates is used, we need to zero meanStates before the primal run
+    this->zeroMeanStates();
+    
     label printInterval = daOptionPtr_->getOption<label>("printInterval");
     label printToScreen = 0;
+    label regModelFail = 0;
     while (this->loop(runTime)) // using simple.loop() will have seg fault in parallel
     {
+        DAUtility::primalMaxInitRes_ = -1e16;
 
         printToScreen = this->isPrintTime(runTime, printInterval);
 
@@ -150,7 +154,18 @@ label DARhoSimpleCFoam::solvePrimal(
 #include "EEqnRhoSimpleC.H"
 #include "pEqnRhoSimpleC.H"
 
-        daTurbulenceModelPtr_->correct();
+        daTurbulenceModelPtr_->correct(printToScreen);
+
+        // update the output field value at each iteration, if the regression model is active
+        regModelFail = daRegressionPtr_->compute();
+
+        if (this->validateStates())
+        {
+            // write data to files and quit
+            runTime.writeNow();
+            mesh.write();
+            return 1;
+        }
 
         if (printToScreen)
         {
@@ -158,13 +173,26 @@ label DARhoSimpleCFoam::solvePrimal(
 
             this->printAllObjFuncs();
 
+            daRegressionPtr_->printInputInfo();
+
             Info << "ExecutionTime = " << runTime.elapsedCpuTime() << " s"
                  << "  ClockTime = " << runTime.elapsedClockTime() << " s"
                  << nl << endl;
         }
 
+        // if useMeanStates is used, we need to calculate the meanStates
+        this->calcMeanStates();
+
         runTime.write();
     }
+
+    if (regModelFail != 0)
+    {
+        return 1;
+    }
+
+    // if useMeanStates is used, we need to assign meanStates to states right after the case converges
+    this->assignMeanStatesToStates();
 
     this->calcPrimalResidualStatistics("print");
 

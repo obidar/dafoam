@@ -72,7 +72,7 @@ DAObjFuncLocation::DAObjFuncLocation(
         // we assume the patchI and faceI do not change during the optimization
         // otherwise, we should use maxRadiusKS instead
         scalar maxR = -100000;
-        label maxRPatchI, maxRFaceI;
+        label maxRPatchI = -999, maxRFaceI = -999;
         forAll(objFuncFaceSources_, idxI)
         {
             const label& objFuncFaceI = objFuncFaceSources_[idxI];
@@ -109,6 +109,7 @@ DAObjFuncLocation::DAObjFuncLocation(
             maxRFaceI_ = maxRFaceI;
         }
     }
+
 }
 
 /// calculate the value of objective function
@@ -217,6 +218,9 @@ void DAObjFuncLocation::calcObjFunc(
                                           << "Options are: maxRadius"
                                           << abort(FatalError);
     }
+
+    // check if we need to calculate refDiff.
+    this->calcRefVar(objFuncValue);
 
     return;
 }

@@ -27,6 +27,8 @@ daTurbulenceModelPtr_.reset(DATurbulenceModel::New(turbModelName, mesh, daOption
 
 daModelPtr_.reset(new DAModel(mesh, daOptionPtr_()));
 
+daRegressionPtr_.reset(new DARegression(mesh, daOptionPtr_(), daModelPtr_()));
+
 word solverName = daOptionPtr_->getOption<word>("solverName");
 daStateInfoPtr_.reset(DAStateInfo::New(solverName, mesh, daOptionPtr_(), daModelPtr_()));
 stateInfo_ = daStateInfoPtr_->getStateInfo();
@@ -38,3 +40,9 @@ daIndexPtr_->printIndices();
 daFieldPtr_.reset(new DAField(mesh, daOptionPtr_(), daModelPtr_(), daIndexPtr_()));
 
 daResidualPtr_.reset(DAResidual::New(solverName, mesh, daOptionPtr_(), daModelPtr_(), daIndexPtr_()));
+
+// calculate the initial (default) value for validate state func
+this->getInitStateVals(initStateVals_);
+
+// initialize the mean states if needed
+this->initMeanStates();

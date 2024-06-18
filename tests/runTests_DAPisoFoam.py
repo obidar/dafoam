@@ -21,7 +21,7 @@ if len(sys.argv) != 1:
 
 gcomm = MPI.COMM_WORLD
 
-os.chdir("./input/CurvedCubeHexMesh")
+os.chdir("./reg_test_files-main/CurvedCubeHexMesh")
 
 if gcomm.rank == 0:
     os.system("rm -rf 0 processor*")
@@ -36,7 +36,7 @@ daOptions = {
     "solverName": "DAPisoFoam",
     "designSurfaces": ["wallsbump"],
     "useAD": {"mode": "fd"},
-    "unsteadyAdjoint": {"mode": "hybridAdjoint", "nTimeInstances": 3, "periodicity": 1.0},
+    "unsteadyAdjoint": {"mode": "hybrid", "nTimeInstances": 3, "periodicity": 1.0},
     "fvSource": {
         "point1": {
             "type": "actuatorPoint",

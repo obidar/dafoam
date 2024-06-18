@@ -194,6 +194,14 @@ public:
         DASolverPtr_->createMLRKSP(jacMat, jacPCMat, ksp);
     }
 
+    /// Update the preconditioner matrix for the ksp object
+    void updateKSPPCMat(
+        Mat PCMat,
+        KSP ksp)
+    {
+        DASolverPtr_->updateKSPPCMat(PCMat, ksp);
+    }
+
     /// create a multi-level, Richardson KSP object with matrix-free Jacobians
     void createMLRKSPMatrixFree(
         const Mat jacPCMat,
@@ -217,12 +225,12 @@ public:
     }
 
     /// solve the linear equation
-    void solveLinearEqn(
+    label solveLinearEqn(
         const KSP ksp,
         const Vec rhsVec,
         Vec solVec)
     {
-        DASolverPtr_->solveLinearEqn(ksp, rhsVec, solVec);
+        return DASolverPtr_->solveLinearEqn(ksp, rhsVec, solVec);
     }
 
     /// convert the mpi vec to a seq vec
@@ -481,6 +489,36 @@ public:
         return returnVal;
     }
 
+    double getObjFuncValueUnsteady(const word objFuncName)
+    {
+        double returnVal = 0.0;
+        assignValueCheckAD(returnVal, DASolverPtr_->getObjFuncValueUnsteady(objFuncName));
+        return returnVal;
+    }
+
+    double getObjFuncUnsteadyScaling()
+    {
+        double returnVal = 0.0;
+        assignValueCheckAD(returnVal, DASolverPtr_->getObjFuncUnsteadyScaling());
+        return returnVal;
+    }
+
+    /// return the elapsed clock time for testing speed
+    double getElapsedClockTime()
+    {
+        double returnVal = 0.0;
+        assignValueCheckAD(returnVal, DASolverPtr_->getElapsedClockTime());
+        return returnVal;
+    }
+
+    /// return the elapsed CPU time for testing speed
+    double getElapsedCpuTime()
+    {
+        double returnVal = 0.0;
+        assignValueCheckAD(returnVal, DASolverPtr_->getElapsedCpuTime());
+        return returnVal;
+    }
+
     void calcCouplingFaceCoords(
         const double* volCoords,
         double* surfCoords)
@@ -536,12 +574,59 @@ public:
     /// set the thermal (temperature or heat flux) BC to the conjugate heat transfer patches
     void setThermal(double* thermal)
     {
-#if !defined(CODI_AD_REVERSE) && !defined(CODI_AD_FORWARD)
-        DASolverPtr_->setThermal(thermal);
-        return;
-#endif
-        FatalErrorIn("setThermal") << "should not call this func in AD mode!"
-                                   << abort(FatalError);
+        label nCouplingFaces = this->getNCouplingFaces();
+        scalar* thermalArray = new scalar[nCouplingFaces * 2];
+        for (label i = 0; i < nCouplingFaces * 2; i++)
+        {
+            thermalArray[i] = thermal[i];
+        }
+
+        DASolverPtr_->setThermal(thermalArray);
+        delete[] thermalArray;
+    }
+
+    /// get the number of regression model parameters
+    label getNRegressionParameters(word modelName)
+    {
+        return DASolverPtr_->getNRegressionParameters(modelName);
+    }
+
+    /// call the compute method of the regression model
+    void regressionModelCompute()
+    {
+        DASolverPtr_->regressionModelCompute();
+    }
+
+    /// set the regression parameter
+    void setRegressionParameter(word modelName, label idxI, double val)
+    {
+        scalar val1 = val;
+        DASolverPtr_->setRegressionParameter(modelName, idxI, val1);
+    }
+
+    /// calculte [dR/dRegParameters]^T * psi
+    void calcdRdRegParTPsiAD(
+        const double* volCoords,
+        const double* states,
+        const double* parameters,
+        const double* seeds,
+        const word modelName,
+        double* product)
+    {
+        DASolverPtr_->calcdRdRegParTPsiAD(volCoords, states, parameters, seeds, modelName, product);
+    }
+
+    /// compute dFdRegPar AD
+    void calcdFdRegParAD(
+        const double* volCoords,
+        const double* states,
+        const double* parameters,
+        const word objFuncName,
+        const word designVarName,
+        const word modelName,
+        double* dFdRegPar)
+    {
+        DASolverPtr_->calcdFdRegParAD(volCoords, states, parameters, objFuncName, designVarName, modelName, dFdRegPar);
     }
 
     void calcdRdThermalTPsiAD(
@@ -552,6 +637,15 @@ public:
         double* product)
     {
         DASolverPtr_->calcdRdThermalTPsiAD(volCoords, states, thermal, seeds, product);
+    }
+
+    /// get a variable from OF layer
+    void getOFField(
+        const word fieldName,
+        const word fieldType,
+        Vec field)
+    {
+        DASolverPtr_->getOFField(fieldName, fieldType, field);
     }
 
     /// return the acoustic data values
@@ -681,6 +775,72 @@ public:
         DASolverPtr_->setTimeInstanceVar(mode, stateMat, stateBCMat, timeVec, timeIdxVec);
     }
 
+    /// read the state variables from the disk and assign the value to the prescribe time level
+    void readStateVars(
+        scalar timeVal,
+        label timeLevel = 0)
+    {
+        DASolverPtr_->readStateVars(timeVal, timeLevel);
+    }
+
+    /// calculate the PC mat using fvMatrix
+    void calcPCMatWithFvMatrix(Mat PCMat)
+    {
+        DASolverPtr_->calcPCMatWithFvMatrix(PCMat);
+    }
+
+    /// setTime for OF fields
+    void setTime(scalar time, label timeIndex)
+    {
+        DASolverPtr_->setTime(time, timeIndex);
+    }
+
+    /// get the ddtScheme order
+    label getDdtSchemeOrder()
+    {
+        return DASolverPtr_->getDdtSchemeOrder();
+    }
+
+    /// return the endTime
+    double getEndTime()
+    {
+#if !defined(CODI_AD_REVERSE) && !defined(CODI_AD_FORWARD)
+        return DASolverPtr_->getRunTime().endTime().value();
+#endif
+        FatalErrorIn("getEndTime") << "should not call this func in AD mode!"
+                                   << abort(FatalError);
+    }
+
+    /// return the deltaT
+    double getDeltaT()
+    {
+#if !defined(CODI_AD_REVERSE) && !defined(CODI_AD_FORWARD)
+        return DASolverPtr_->getRunTime().deltaT().value();
+#endif
+        FatalErrorIn("getDeltaT") << "should not call this func in AD mode!"
+                                  << abort(FatalError);
+    }
+
+    /// get the unsteady adjoint start time
+    int getUnsteadyObjFuncStartTimeIndex()
+    {
+#if !defined(CODI_AD_REVERSE) && !defined(CODI_AD_FORWARD)
+        return DASolverPtr_->getUnsteadyObjFuncStartTimeIndex();
+#endif
+        FatalErrorIn("getUnsteadyObjFuncStartTimeIndex") << "should not call this func in AD mode!"
+                                                         << abort(FatalError);
+    }
+
+    /// get the unsteady adjoint end time
+    int getUnsteadyObjFuncEndTimeIndex()
+    {
+#if !defined(CODI_AD_REVERSE) && !defined(CODI_AD_FORWARD)
+        return DASolverPtr_->getUnsteadyObjFuncEndTimeIndex();
+#endif
+        FatalErrorIn("getUnsteadyObjFuncEndTimeIndex") << "should not call this func in AD mode!"
+                                                       << abort(FatalError);
+    }
+
     /// return the value of objective function at the given time instance and name
     double getTimeInstanceObjFunc(
         const label instanceI,
@@ -719,6 +879,12 @@ public:
         DASolverPtr_->updateBoundaryConditions(fieldName, fieldType);
     }
 
+    /// update the boundary conditions for all states and intermediate variables
+    void updateStateBoundaryConditions()
+    {
+        DASolverPtr_->updateStateBoundaryConditions();
+    }
+
     /// Calculate the mean, max, and norm2 for all residuals and print it to screen
     void calcPrimalResidualStatistics(const word mode)
     {
@@ -750,9 +916,10 @@ public:
         Vec rDist,
         Vec targetForce,
         Vec center,
+        Vec xvVec,
         Vec fvSource)
     {
-        DASolverPtr_->calcFvSource(propName, aForce, tForce, rDist, targetForce, center, fvSource);
+        DASolverPtr_->calcFvSource(propName, aForce, tForce, rDist, targetForce, center, xvVec, fvSource);
     }
 
     void calcdFvSourcedInputsTPsiAD(
@@ -763,10 +930,11 @@ public:
         Vec rDist,
         Vec targetForce,
         Vec center,
+        Vec xvVec,
         Vec psi,
         Vec dFvSource)
     {
-        DASolverPtr_->calcdFvSourcedInputsTPsiAD(propName, mode, aForce, tForce, rDist, targetForce, center, psi, dFvSource);
+        DASolverPtr_->calcdFvSourcedInputsTPsiAD(propName, mode, aForce, tForce, rDist, targetForce, center, xvVec, psi, dFvSource);
     }
 
     void calcForceProfile(
@@ -812,13 +980,50 @@ public:
 
     /// initialize the call back function pointer
     void initTensorFlowFuncs(
-        pyComputeInterface computeInterface, 
+        pyComputeInterface computeInterface,
         void* compute,
         pyJacVecProdInterface jacVecProdInterface,
-        void* jacVecProd)
+        void* jacVecProd,
+        pySetCharInterface setModelNameInterface,
+        void* setModelName)
     {
-        DASolverPtr_->initTensorFlowFuncs(computeInterface, compute, jacVecProdInterface, jacVecProd);
+        DASolverPtr_->initTensorFlowFuncs(
+            computeInterface, compute, jacVecProdInterface, jacVecProd, setModelNameInterface, setModelName);
     }
+
+    /// write the sensitivity map for all wall surfaces
+    void writeSensMapSurface(
+        const word name,
+        const double* dFdXs,
+        const double* Xs,
+        const label size,
+        const double timeName)
+    {
+        DASolverPtr_->writeSensMapSurface(name, dFdXs, Xs, size, timeName);
+    }
+
+    /// write the sensitivity map for the entire field
+    void writeSensMapField(
+        const word name,
+        const double* dFdField,
+        const word fieldType,
+        const double timeName)
+    {
+        DASolverPtr_->writeSensMapField(name, dFdField, fieldType, timeName);
+    }
+
+    /// get the latest solution time
+    double getLatestTime()
+    {
+        double latestTime = 0.0;
+#if !defined(CODI_AD_REVERSE) && !defined(CODI_AD_FORWARD)
+        latestTime = DASolverPtr_->getLatestTime();
+#else
+        scalar tmp = DASolverPtr_->getLatestTime();
+        latestTime = tmp.getValue();
+#endif
+        return latestTime;
+    };
 };
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

@@ -209,10 +209,16 @@ public:
     virtual void calcResiduals(const dictionary& options) = 0;
 
     /// solve the residual equations and update the state
-    virtual void correct() = 0;
+    virtual void correct(label printToScreen) = 0;
 
-    /// return the value of the production term from the Spalart Allmaras model
-    virtual void getTurbProdTerm(scalarList& prodTerm) const;
+    /// return the value of the production term from the turbulence model
+    virtual void getTurbProdTerm(volScalarField& prodTerm) const;
+
+    /// return the ratio of the production over destruction term from the turbulence model
+    virtual void getTurbProdOverDestruct(volScalarField& PoD) const;
+
+    /// return the value of the convective over production term from the turbulence model
+    virtual void getTurbConvOverProd(volScalarField& CoP) const;
 
     /// dev terms
     tmp<volSymmTensorField> devRhoReff() const;
@@ -296,6 +302,13 @@ public:
 
     /// calculate the turbulence residual using LDU matrix
     virtual void calcLduResidualTurb(volScalarField& nuTildaRes);
+
+    /// return the diag(), upper(), and lower() scalarFields from the turbulence model's fvMatrix
+    virtual void getFvMatrixFields(
+        const word varName,
+        scalarField& diag,
+        scalarField& upper,
+        scalarField& lower);
 };
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

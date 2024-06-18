@@ -15,7 +15,7 @@ from testFuncs import *
 
 gcomm = MPI.COMM_WORLD
 
-os.chdir("./input/ChannelConjugateHeat/thermal")
+os.chdir("./reg_test_files-main/ChannelConjugateHeat/thermal")
 
 aeroOptions = {
     "designSurfaces": ["channel_outer", "channel_inner", "channel_sides"],
@@ -49,6 +49,17 @@ aeroOptions = {
                 "wallGroup": ["channel_outer"],
             },
         }
+    },
+    "fvSource": {
+        "source1": {
+            "type": "heatSource",
+            "source": "cylinderAnnulusToCell",
+            "p1": [0.0, 0.0, 0.0],
+            "p2": [0.5, 0.0, 0.0],
+            "innerRadius": 0.0,
+            "outerRadius": 10.0,
+            "power": 1000.0,
+        },
     },
 }
 DASolver = PYDAFOAM(options=aeroOptions, comm=MPI.COMM_WORLD)

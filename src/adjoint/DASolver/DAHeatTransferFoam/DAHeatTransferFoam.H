@@ -12,6 +12,7 @@
 #define DAHeatTransferFoam_H
 
 #include "DASolver.H"
+#include "DAFvSource.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -36,6 +37,12 @@ protected:
 
     /// h pointer
     autoPtr<dimensionedScalar> kPtr_;
+
+    /// DASource pointer
+    autoPtr<DAFvSource> daFvSourcePtr_;
+
+    /// whether to have fvSource term
+    label hasFvSource_ = 0;
 
 public:
     TypeName("DAHeatTransferFoam");

@@ -42,16 +42,13 @@ DASolidDisplacementFoam::DASolidDisplacementFoam(
     char* argsAll,
     PyObject* pyOptions)
     : DASolver(argsAll, pyOptions),
-      mechanicalPropertiesPtr_(nullptr),
       rhoPtr_(nullptr),
       muPtr_(nullptr),
       lambdaPtr_(nullptr),
       EPtr_(nullptr),
       nuPtr_(nullptr),
       DPtr_(nullptr),
-      sigmaDPtr_(nullptr),
-      gradDPtr_(nullptr),
-      divSigmaExpPtr_(nullptr)
+      gradDPtr_(nullptr)
 {
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
@@ -66,7 +63,6 @@ void DASolidDisplacementFoam::initSolver()
     Info << "Initializing fields for DASolidDisplacementFoam" << endl;
     Time& runTime = runTimePtr_();
     fvMesh& mesh = meshPtr_();
-#include "createControlsSolidDisplacement.H"
 #include "createFieldsSolidDisplacement.H"
 #include "createAdjointSolid.H"
     // initialize checkMesh
@@ -112,11 +108,11 @@ label DASolidDisplacementFoam::solvePrimal(
         return 1;
     }
 
-    primalMinRes_ = 1e10;
     label printInterval = daOptionPtr_->getOption<label>("printInterval");
     label printToScreen = 0;
     while (this->loop(runTime)) // using simple.loop() will have seg fault in parallel
     {
+        DAUtility::primalMaxInitRes_ = -1e16;
 
         printToScreen = this->isPrintTime(runTime, printInterval);
 
@@ -125,43 +121,29 @@ label DASolidDisplacementFoam::solvePrimal(
             Info << "Iteration = " << runTime.value() << nl << endl;
         }
 
-        label iCorr = 0;
-        scalar initialResidual = 0;
+        gradD = fvc::grad(D);
+        volSymmTensorField sigmaD = mu * twoSymm(gradD) + (lambda * I) * tr(gradD);
 
-        do
+        volVectorField divSigmaExp = fvc::div(sigmaD - (2 * mu + lambda) * gradD, "div(sigmaD)");
+
+        fvVectorMatrix DEqn(
+            fvm::d2dt2(D)
+            == fvm::laplacian(2 * mu + lambda, D, "laplacian(DD,D)")
+                + divSigmaExp);
+
+        // get the solver performance info such as initial
+        // and final residuals
+        SolverPerformance<vector> solverD = DEqn.solve();
+
+        DAUtility::primalResidualControl(solverD, printToScreen, "D");
+
+        if (this->validateStates())
         {
-            fvVectorMatrix DEqn(
-                fvm::d2dt2(D)
-                == fvm::laplacian(2 * mu + lambda, D, "laplacian(DD,D)")
-                    + divSigmaExp);
-
-            // get the solver performance info such as initial
-            // and final residuals
-            SolverPerformance<vector> solverU = DEqn.solve();
-            initialResidual = solverU.max().initialResidual();
-
-            this->primalResidualControl<vector>(solverU, printToScreen, printInterval, "U");
-
-            if (!compactNormalStress_)
-            {
-                divSigmaExp = fvc::div(DEqn.flux());
-            }
-
-            gradD = fvc::grad(D);
-            sigmaD = mu * twoSymm(gradD) + (lambda * I) * tr(gradD);
-
-            if (compactNormalStress_)
-            {
-                divSigmaExp = fvc::div(
-                    sigmaD - (2 * mu + lambda) * gradD,
-                    "div(sigmaD)");
-            }
-            else
-            {
-                divSigmaExp += fvc::div(sigmaD);
-            }
-
-        } while (initialResidual > convergenceTolerance_ && ++iCorr < nCorr_);
+            // write data to files and quit
+            runTime.writeNow();
+            mesh.write();
+            return 1;
+        }
 
         if (printToScreen)
         {
@@ -172,7 +154,6 @@ label DASolidDisplacementFoam::solvePrimal(
         }
 
         runTime.write();
-
     }
 
 #include "calculateStressSolidDisplacement.H"

@@ -27,6 +27,8 @@ DAModel/DARadiationModel/DAP1.C
 
 DAModel/DAModel.C
 
+DARegression/DARegression.C
+
 DAStateInfo/DAStateInfo.C
 DAStateInfo/DAStateInfoSimpleFoam.C
 DAStateInfo/DAStateInfoPisoFoam.C
@@ -55,6 +57,7 @@ DAObjFunc/DAObjFuncMeshQualityKS.C
 DAObjFunc/DAObjFuncPatchMean.C
 DAObjFunc/DAObjFuncMassFlowRate.C
 DAObjFunc/DAObjFuncLocation.C
+DAObjFunc/DAObjFuncVariance.C
 
 DAFvSource/DAFvSource.C
 DAFvSource/DAFvSourceActuatorDisk.C
@@ -99,8 +102,11 @@ DASolver/DAPisoFoam/DAPisoFoam.C
 DASolver/DAPimpleFoam/DAPimpleFoam.C
 DASolver/DAPimpleDyMFoam/DAPimpleDyMFoam.C
 
+boundaryConditions/homTemp/homTempFvPatchScalarField.C
 boundaryConditions/multiFreqVector/multiFreqVectorFvPatchField.C
 boundaryConditions/nutUSpaldingWallFunctionDF/nutUSpaldingWallFunctionFvPatchScalarFieldDF.C
+boundaryConditions/varyingVelocity/varyingVelocityFvPatchVectorField.C
+boundaryConditions/varyingVelocityInletOutlet/varyingVelocityInletOutletFvPatchVectorField.C
 models/dummyTurbulenceModel/makeDummyTurbulenceModelIncompressible.C
 models/SpalartAllmarasFv3/makeSpalartAllmarasFv3Incompressible.C
 models/SpalartAllmarasFv3FieldInversion/makeSpalartAllmarasFv3FieldInversionIncompressible.C

@@ -76,6 +76,7 @@ DAObjFuncMeshQualityKS::DAObjFuncMeshQualityKS(
     {
         Info << "includeFaceList " << includeFaceList_ << endl;
     }
+
 }
 
 /// calculate the value of objective function
@@ -217,6 +218,9 @@ void DAObjFuncMeshQualityKS::calcObjFunc(
     reduce(objFuncValue, sumOp<scalar>());
 
     objFuncValue = log(objFuncValue) / coeffKS_;
+
+    // check if we need to calculate refDiff.
+    this->calcRefVar(objFuncValue);
 
     return;
 }

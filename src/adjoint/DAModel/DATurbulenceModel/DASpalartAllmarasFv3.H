@@ -94,11 +94,11 @@ protected:
     /// 3D wall distance
     const volScalarField& y_;
 
+    /// beta field for field inversion
+    volScalarField betaFINuTilda_;
+
     /// whether to solve for turb states
     label solveTurbState_ = 0;
-
-    /// time step interval to print residual
-    label printInterval_;
 
     // fvSolutions parameters
     scalar relaxNuTildaEqn_ = 1.0;
@@ -146,7 +146,7 @@ public:
     virtual void calcResiduals(const dictionary& options);
 
     /// solve the residual equations and update the state
-    virtual void correct();
+    virtual void correct(label printToScreen);
 
     /// Inverse transpose product, A_nuTilda^(-T)
     virtual void invTranProdNuTildaEqn(
@@ -161,6 +161,19 @@ public:
 
     /// calculate the turbulence residual using LDU matrix
     virtual void calcLduResidualTurb(volScalarField& nuTildaRes);
+
+    /// return the diag(), upper(), and lower() scalarFields from the turbulence model's fvMatrix
+    virtual void getFvMatrixFields(
+        const word varName,
+        scalarField& diag,
+        scalarField& upper,
+        scalarField& lower);
+
+    /// return the value of the destruction term from the turbulence model
+    virtual void getTurbProdOverDestruct(volScalarField& PoD) const;
+
+    /// return the value of the convective over production term from the turbulence model
+    virtual void getTurbConvOverProd(volScalarField& CoP) const;
 };
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

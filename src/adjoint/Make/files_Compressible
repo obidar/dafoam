@@ -26,9 +26,12 @@ DAModel/DARadiationModel/DAP1.C
 
 DAModel/DAModel.C
 
+DARegression/DARegression.C
+
 DAStateInfo/DAStateInfo.C
 DAStateInfo/DAStateInfoRhoSimpleFoam.C
 DAStateInfo/DAStateInfoRhoSimpleCFoam.C
+DAStateInfo/DAStateInfoRhoPimpleFoam.C
 DAStateInfo/DAStateInfoTurboFoam.C
 
 DAIndex/DAIndex.C
@@ -50,6 +53,7 @@ DAObjFunc/DAObjFuncMeshQualityKS.C
 DAObjFunc/DAObjFuncFieldInversion.C
 DAObjFunc/DAObjFuncPatchMean.C
 DAObjFunc/DAObjFuncLocation.C
+DAObjFunc/DAObjFuncVariance.C
 
 DAFvSource/DAFvSource.C
 DAFvSource/DAFvSourceActuatorDisk.C
@@ -57,6 +61,7 @@ DAFvSource/DAFvSourceActuatorDisk.C
 DAResidual/DAResidual.C
 DAResidual/DAResidualDummy.C
 DAResidual/DAResidualRhoSimpleFoam.C
+DAResidual/DAResidualRhoPimpleFoam.C
 DAResidual/DAResidualRhoSimpleCFoam.C
 DAResidual/DAResidualTurboFoam.C
 
@@ -86,16 +91,20 @@ DALinearEqn/DALinearEqn.C
 DASolver/DASolver.C
 DASolver/DARhoSimpleFoam/DARhoSimpleFoam.C
 DASolver/DARhoSimpleCFoam/DARhoSimpleCFoam.C
+DASolver/DARhoPimpleFoam/DARhoPimpleFoam.C
 DASolver/DATurboFoam/DATurboFoam.C
 
+boundaryConditions/homTemp/homTempFvPatchScalarField.C
 boundaryConditions/multiFreqVector/multiFreqVectorFvPatchField.C
 boundaryConditions/nutUSpaldingWallFunctionDF/nutUSpaldingWallFunctionFvPatchScalarFieldDF.C
+boundaryConditions/varyingVelocity/varyingVelocityFvPatchVectorField.C
+boundaryConditions/varyingVelocityInletOutlet/varyingVelocityInletOutletFvPatchVectorField.C
 models/dummyTurbulenceModel/makeDummyTurbulenceModelCompressible.C
 models/SpalartAllmarasFv3/makeSpalartAllmarasFv3Compressible.C
 models/SpalartAllmarasFv3FieldInversion/makeSpalartAllmarasFv3FieldInversionCompressible.C
 models/kOmegaSSTFieldInversion/makekOmegaSSTFieldInversionCompressible.C
 models/kOmegaFieldInversionOmega/makekOmegaFieldInversionOmegaCompressible.C
-
+models/pimpleControlDF/pimpleControlDF.C
 
 models/MRFDF/MRFZoneDF.C
 models/MRFDF/MRFZoneListDF.C

@@ -21,7 +21,7 @@ if len(sys.argv) != 1:
 
 gcomm = MPI.COMM_WORLD
 
-os.chdir("./input/NACA0012")
+os.chdir("./reg_test_files-main/NACA0012")
 
 if gcomm.rank == 0:
     os.system("rm -rf 0 processor*")
@@ -44,7 +44,7 @@ aeroOptions = {
     "designSurfaces": ["wing"],
     "useAD": {"mode": "reverse"},
     "writeJacobians": ["all"],
-    "primalMinResTol": 1e-12,
+    "primalMinResTol": 3e-12,
     "primalBC": {
         "UIn": {"variable": "U", "patches": ["inout"], "value": [U0, 0.0, 0.0]},
         "p0": {"variable": "p", "patches": ["inout"], "value": [p0]},

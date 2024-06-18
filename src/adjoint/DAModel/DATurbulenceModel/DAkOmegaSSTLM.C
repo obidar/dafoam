@@ -194,30 +194,28 @@ DAkOmegaSSTLM::DAkOmegaSSTLM(
           zeroGradientFvPatchScalarField::typeName),
       gammaIntEff_(const_cast<volScalarField::Internal&>(
           mesh_.thisDb().lookupObject<volScalarField::Internal>("gammaIntEff"))),
-      y_(mesh_.thisDb().lookupObject<volScalarField>("yWall"))
+      y_(mesh_.thisDb().lookupObject<volScalarField>("yWall")),
+      betaFIK_(
+          IOobject(
+              "betaFIK",
+              mesh.time().timeName(),
+              mesh,
+              IOobject::READ_IF_PRESENT,
+              IOobject::AUTO_WRITE),
+          mesh,
+          dimensionedScalar("betaFIK", dimensionSet(0, 0, 0, 0, 0, 0, 0), 1.0),
+          "zeroGradient"),
+      betaFIOmega_(
+          IOobject(
+              "betaFIOmega",
+              mesh.time().timeName(),
+              mesh,
+              IOobject::READ_IF_PRESENT,
+              IOobject::AUTO_WRITE),
+          mesh,
+          dimensionedScalar("betaFIOmega", dimensionSet(0, 0, 0, 0, 0, 0, 0), 1.0),
+          "zeroGradient")
 {
-
-    // initialize printInterval_ we need to check whether it is a steady state
-    // or unsteady primal solver
-    IOdictionary fvSchemes(
-        IOobject(
-            "fvSchemes",
-            mesh.time().system(),
-            mesh,
-            IOobject::MUST_READ,
-            IOobject::NO_WRITE,
-            false));
-    word ddtScheme = word(fvSchemes.subDict("ddtSchemes").lookup("default"));
-    if (ddtScheme == "steadyState")
-    {
-        printInterval_ =
-            daOption.getAllOptions().lookupOrDefault<label>("printInterval", 100);
-    }
-    else
-    {
-        printInterval_ =
-            daOption.getAllOptions().lookupOrDefault<label>("printIntervalUnsteady", 500);
-    }
 
     // calculate the size of omegaWallFunction faces
     label nWallFaces = 0;
@@ -985,7 +983,7 @@ void DAkOmegaSSTLM::addModelResidualCon(HashTable<List<List<word>>>& allCon) con
 #endif
 }
 
-void DAkOmegaSSTLM::correct()
+void DAkOmegaSSTLM::correct(label printToScreen)
 {
     /*
     Descroption:
@@ -999,6 +997,7 @@ void DAkOmegaSSTLM::correct()
     // we will solve and update nuTilda
     solveTurbState_ = 1;
     dictionary dummyOptions;
+    dummyOptions.set("printToScreen", printToScreen);
     this->calcResiduals(dummyOptions);
     // after it, we reset solveTurbState_ = 0 such that calcResiduals will not
     // update nuTilda when calling from the adjoint class, i.e., solveAdjoint from DASolver.
@@ -1027,7 +1026,14 @@ void DAkOmegaSSTLM::calcResiduals(const dictionary& options)
 
     // Copy and modify based on the "correct" function
 
-    label printToScreen = this->isPrintTime(mesh_.time(), printInterval_);
+    label printToScreen = 0;
+    if (solveTurbState_)
+    {
+        if (options.getLabel("printToScreen"))
+        {
+            printToScreen = 1;
+        }
+    }
 
     word divKScheme = "div(phi,k)";
     word divOmegaScheme = "div(phi,omega)";
@@ -1088,7 +1094,7 @@ void DAkOmegaSSTLM::calcResiduals(const dictionary& options)
                 fvm::ddt(phase_, rho_, omega_)
                     + fvm::div(phaseRhoPhi_, omega_, divOmegaScheme)
                     - fvm::laplacian(phase_ * rho_ * DomegaEff(F1), omega_)
-                == phase_() * rho_() * gamma * GbyNu(GbyNu0, F23(), S2())
+                == phase_() * rho_() * gamma * GbyNu(GbyNu0, F23(), S2()) * betaFIOmega_()
                     - fvm::SuSp((2.0 / 3.0) * phase_() * rho_() * gamma * divU, omega_)
                     - fvm::Sp(phase_() * rho_() * beta * omega_(), omega_)
                     - fvm::SuSp(
@@ -1104,15 +1110,12 @@ void DAkOmegaSSTLM::calcResiduals(const dictionary& options)
 
             if (solveTurbState_)
             {
+                label printToScreen = options.getLabel("printToScreen");
 
                 // get the solver performance info such as initial
                 // and final residuals
                 SolverPerformance<scalar> solverOmega = solve(omegaEqn);
-                if (printToScreen)
-                {
-                    Info << "omega Initial residual: " << solverOmega.initialResidual() << endl
-                         << "        Final residual: " << solverOmega.finalResidual() << endl;
-                }
+                DAUtility::primalResidualControl(solverOmega, printToScreen, "omega");
 
                 DAUtility::boundVar(allOptions_, omega_, printToScreen);
             }
@@ -1133,7 +1136,7 @@ void DAkOmegaSSTLM::calcResiduals(const dictionary& options)
             fvm::ddt(phase_, rho_, k_)
                 + fvm::div(phaseRhoPhi_, k_, divKScheme)
                 - fvm::laplacian(phase_ * rho_ * DkEff(F1), k_)
-            == phase_() * rho_() * Pk(G)
+            == phase_() * rho_() * Pk(G) * betaFIK_()
                 - fvm::SuSp((2.0 / 3.0) * phase_() * rho_() * divU, k_)
                 - fvm::Sp(phase_() * rho_() * epsilonByk(F1, tgradU()), k_)
                 + kSource());
@@ -1144,15 +1147,12 @@ void DAkOmegaSSTLM::calcResiduals(const dictionary& options)
 
         if (solveTurbState_)
         {
+            label printToScreen = options.getLabel("printToScreen");
 
             // get the solver performance info such as initial
             // and final residuals
             SolverPerformance<scalar> solverK = solve(kEqn);
-            if (printToScreen)
-            {
-                Info << "k Initial residual: " << solverK.initialResidual() << endl
-                     << "    Final residual: " << solverK.finalResidual() << endl;
-            }
+            DAUtility::primalResidualControl(solverK, printToScreen, "k");
 
             DAUtility::boundVar(allOptions_, k_, printToScreen);
 
@@ -1204,15 +1204,12 @@ void DAkOmegaSSTLM::calcResiduals(const dictionary& options)
 
             if (solveTurbState_)
             {
+                label printToScreen = options.getLabel("printToScreen");
 
                 // get the solver performance info such as initial
                 // and final residuals
                 SolverPerformance<scalar> solverReThetat = solve(ReThetatEqn);
-                if (printToScreen)
-                {
-                    Info << "ReThetat Initial residual: " << solverReThetat.initialResidual() << endl
-                         << "        Final residual: " << solverReThetat.finalResidual() << endl;
-                }
+                DAUtility::primalResidualControl(solverReThetat, printToScreen, "ReThetat");
 
                 DAUtility::boundVar(allOptions_, ReThetat_, printToScreen);
             }
@@ -1255,15 +1252,12 @@ void DAkOmegaSSTLM::calcResiduals(const dictionary& options)
 
             if (solveTurbState_)
             {
+                label printToScreen = options.getLabel("printToScreen");
 
                 // get the solver performance info such as initial
                 // and final residuals
                 SolverPerformance<scalar> solverGammaInt = solve(gammaIntEqn);
-                if (printToScreen)
-                {
-                    Info << "gammaInt Initial residual: " << solverGammaInt.initialResidual() << endl
-                         << "        Final residual: " << solverGammaInt.finalResidual() << endl;
-                }
+                DAUtility::primalResidualControl(solverGammaInt, printToScreen, "gammaInt");
 
                 DAUtility::boundVar(allOptions_, gammaInt_, printToScreen);
 
@@ -1285,6 +1279,248 @@ void DAkOmegaSSTLM::calcResiduals(const dictionary& options)
     }
 
     return;
+}
+
+void DAkOmegaSSTLM::getFvMatrixFields(
+    const word varName,
+    scalarField& diag,
+    scalarField& upper,
+    scalarField& lower)
+{
+    /* 
+    Description:
+        return the diag(), upper(), and lower() scalarFields from the turbulence model's fvMatrix
+        this will be use to compute the preconditioner matrix
+    */
+
+    if (varName != "k" && varName != "omega" && varName != "ReThetat" && varName != "gamma")
+    {
+        FatalErrorIn(
+            "varName not valid. It has to be k, omega, ReThetat, or gamma")
+            << exit(FatalError);
+    }
+
+    // Note: for compressible flow, the "this->phi()" function divides phi by fvc:interpolate(rho),
+    // while for the incompresssible "this->phi()" returns phi only
+    // see src/TurbulenceModels/compressible/compressibleTurbulenceModel.C line 62 to 73
+    volScalarField::Internal divU(fvc::div(fvc::absolute(phi_ / fvc::interpolate(rho_), U_)));
+
+    tmp<volTensorField> tgradU = fvc::grad(U_);
+    volScalarField S2(2 * magSqr(symm(tgradU())));
+    volScalarField::Internal GbyNu0((tgradU() && dev(twoSymm(tgradU()))));
+    volScalarField::Internal G("kOmegaSST:G", nut_ * GbyNu0);
+
+    // NOTE instead of calling omega_.boundaryFieldRef().updateCoeffs();
+    // here we call our self-defined boundary conditions
+    this->correctOmegaBoundaryConditions();
+
+    volScalarField CDkOmega(
+        (scalar(2) * alphaOmega2_) * (fvc::grad(k_) & fvc::grad(omega_)) / omega_);
+
+    volScalarField F1(this->F1(CDkOmega));
+    volScalarField F23(this->F23());
+
+    if (varName == "omega" || varName == "k")
+    {
+        // Note: for compressible flow, the "this->phi()" function divides phi by fvc:interpolate(rho),
+        // while for the incompresssible "this->phi()" returns phi only
+        // see src/TurbulenceModels/compressible/compressibleTurbulenceModel.C line 62 to 73
+        volScalarField::Internal divU(fvc::div(fvc::absolute(phi_ / fvc::interpolate(rho_), U_)));
+
+        tmp<volTensorField> tgradU = fvc::grad(U_);
+        volScalarField S2(2 * magSqr(symm(tgradU())));
+        volScalarField::Internal GbyNu0((tgradU() && dev(twoSymm(tgradU()))));
+        volScalarField::Internal G("kOmegaSSTLM:G", nut_ * GbyNu0);
+
+        // NOTE instead of calling omega_.boundaryFieldRef().updateCoeffs();
+        // here we call our self-defined boundary conditions
+        this->correctOmegaBoundaryConditions();
+
+        volScalarField CDkOmega(
+            (scalar(2) * alphaOmega2_) * (fvc::grad(k_) & fvc::grad(omega_)) / omega_);
+
+        volScalarField F1(this->F1(CDkOmega));
+        volScalarField F23(this->F23());
+
+        if (varName == "omega")
+        {
+
+            volScalarField::Internal gamma(this->gamma(F1));
+            volScalarField::Internal beta(this->beta(F1));
+
+            // Turbulent frequency equation
+            fvScalarMatrix omegaEqn(
+                fvm::ddt(phase_, rho_, omega_)
+                    + fvm::div(phaseRhoPhi_, omega_, "div(pc)")
+                    - fvm::laplacian(phase_ * rho_ * DomegaEff(F1), omega_)
+                == phase_() * rho_() * gamma * GbyNu(GbyNu0, F23(), S2()) * betaFIOmega_()
+                    - fvm::SuSp((2.0 / 3.0) * phase_() * rho_() * gamma * divU, omega_)
+                    - fvm::Sp(phase_() * rho_() * beta * omega_(), omega_)
+                    - fvm::SuSp(
+                        phase_() * rho_() * (F1() - scalar(1)) * CDkOmega() / omega_(),
+                        omega_)
+                    + Qsas(S2(), gamma, beta)
+                    + omegaSource()
+
+            );
+
+            omegaEqn.relax();
+
+            // reset the corrected omega near wall cell to its perturbed value
+            this->setOmegaNearWall();
+
+            diag = omegaEqn.D();
+            upper = omegaEqn.upper();
+            lower = omegaEqn.lower();
+        }
+
+        if (varName == "k")
+        {
+            // Turbulent kinetic energy equation
+            fvScalarMatrix kEqn(
+                fvm::ddt(phase_, rho_, k_)
+                    + fvm::div(phaseRhoPhi_, k_, "div(pc)")
+                    - fvm::laplacian(phase_ * rho_ * DkEff(F1), k_)
+                == phase_() * rho_() * Pk(G)
+                    - fvm::SuSp((2.0 / 3.0) * phase_() * rho_() * divU, k_)
+                    - fvm::Sp(phase_() * rho_() * epsilonByk(F1, tgradU()), k_)
+                    + kSource());
+
+            tgradU.clear();
+
+            kEqn.relax();
+
+            diag = kEqn.D();
+            upper = kEqn.upper();
+            lower = kEqn.lower();
+        }
+    }
+    else if (varName == "gammaInt" || varName == "ReThetat")
+    {
+        // we need to bound before computing residuals
+        // this will avoid having NaN residuals
+        DAUtility::boundVar(allOptions_, ReThetat_, 0);
+
+        // Local references
+        const tmp<volScalarField> tnu = this->nu();
+        const volScalarField::Internal& nu = tnu()();
+        const volScalarField::Internal& y = y_();
+
+        // Fields derived from the velocity gradient
+        tmp<volTensorField> tgradULM = fvc::grad(U_);
+        const volScalarField::Internal Omega(sqrt(2 * magSqr(skew(tgradULM()()))));
+        const volScalarField::Internal S(sqrt(2 * magSqr(symm(tgradULM()()))));
+        const volScalarField::Internal Us(max(mag(U_()), deltaU_));
+        const volScalarField::Internal dUsds((U_() & (U_() & tgradULM()())) / sqr(Us));
+        tgradULM.clear();
+
+        const volScalarField::Internal Fthetat(this->Fthetat(Us, Omega, nu));
+
+        if (varName == "ReThetat")
+        {
+            const volScalarField::Internal t(500 * nu / sqr(Us));
+            const volScalarField::Internal Pthetat(
+                phase_() * rho_() * (cThetat_ / t) * (1 - Fthetat));
+
+            // Transition onset momentum-thickness Reynolds number equation
+            fvScalarMatrix ReThetatEqn(
+                fvm::ddt(phase_, rho_, ReThetat_)
+                    + fvm::div(phaseRhoPhi_, ReThetat_, "div(pc)")
+                    - fvm::laplacian(phase_ * rho_ * DReThetatEff(), ReThetat_)
+                == Pthetat * ReThetat0(Us, dUsds, nu) - fvm::Sp(Pthetat, ReThetat_));
+
+            ReThetatEqn.relax();
+
+            diag = ReThetatEqn.D();
+            upper = ReThetatEqn.upper();
+            lower = ReThetatEqn.lower();
+        }
+
+        if (varName == "gammaInt")
+        {
+            // we need to bound before computing residuals
+            // this will avoid having NaN residuals
+            DAUtility::boundVar(allOptions_, gammaInt_, 0);
+
+            const volScalarField::Internal ReThetac(this->ReThetac());
+            const volScalarField::Internal Rev(sqr(y) * S / nu);
+            const volScalarField::Internal RT(k_() / (nu * omega_()));
+
+            const volScalarField::Internal Pgamma(
+                phase_() * rho_()
+                * ca1_ * Flength(nu) * S * sqrt(gammaInt_() * Fonset(Rev, ReThetac, RT)));
+
+            const volScalarField::Internal Fturb(exp(-pow4(0.25 * RT)));
+
+            const volScalarField::Internal Egamma(
+                phase_() * rho_() * ca2_ * Omega * Fturb * gammaInt_());
+
+            // Intermittency equation
+            fvScalarMatrix gammaIntEqn(
+                fvm::ddt(phase_, rho_, gammaInt_)
+                    + fvm::div(phaseRhoPhi_, gammaInt_, "div(pc)")
+                    - fvm::laplacian(phase_ * rho_ * DgammaIntEff(), gammaInt_)
+                == Pgamma - fvm::Sp(ce1_ * Pgamma, gammaInt_)
+                    + Egamma - fvm::Sp(ce2_ * Egamma, gammaInt_));
+
+            gammaIntEqn.relax();
+
+            diag = gammaIntEqn.D();
+            upper = gammaIntEqn.upper();
+            lower = gammaIntEqn.lower();
+        }
+    }
+}
+
+void DAkOmegaSSTLM::getTurbProdOverDestruct(volScalarField& PoD) const
+{
+    /*
+    Description:
+        Return the value of the production over destruction term from the turbulence model 
+    */
+    tmp<volTensorField> tgradU = fvc::grad(U_);
+    volScalarField S2(2 * magSqr(symm(tgradU())));
+    volScalarField::Internal GbyNu0((tgradU() && dev(twoSymm(tgradU()))));
+    volScalarField::Internal G("kOmegaSSTLM:G", nut_ * GbyNu0);
+
+    volScalarField CDkOmega(
+        (scalar(2) * alphaOmega2_) * (fvc::grad(k_) & fvc::grad(omega_)) / omega_);
+
+    volScalarField F1(this->F1(CDkOmega));
+
+    volScalarField::Internal P = phase_() * rho_() * Pk(G);
+    volScalarField::Internal D = phase_() * rho_() * epsilonByk(F1, tgradU()) * k_();
+
+    forAll(P, cellI)
+    {
+        PoD[cellI] = P[cellI] / (D[cellI] + 1e-16);
+    }
+}
+
+void DAkOmegaSSTLM::getTurbConvOverProd(volScalarField& CoP) const
+{
+    /*
+    Description:
+        Return the value of the convective over production term from the turbulence model 
+    */
+
+    tmp<volTensorField> tgradU = fvc::grad(U_);
+    volScalarField S2(2 * magSqr(symm(tgradU())));
+    volScalarField::Internal GbyNu0((tgradU() && dev(twoSymm(tgradU()))));
+    volScalarField::Internal G("kOmegaSSTLM:G", nut_ * GbyNu0);
+
+    volScalarField CDkOmega(
+        (scalar(2) * alphaOmega2_) * (fvc::grad(k_) & fvc::grad(omega_)) / omega_);
+
+    volScalarField F1(this->F1(CDkOmega));
+
+    volScalarField::Internal P = phase_() * rho_() * Pk(G);
+    volScalarField C = fvc::div(phaseRhoPhi_, k_);
+
+    forAll(P, cellI)
+    {
+        CoP[cellI] = C[cellI] / (P[cellI] + 1e-16);
+    }
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 

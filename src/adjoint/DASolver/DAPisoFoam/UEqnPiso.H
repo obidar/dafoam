@@ -20,5 +20,8 @@ if (piso.momentumPredictor())
     // and final residuals
     SolverPerformance<vector> solverU = solve(UEqn == -fvc::grad(p));
 
-    this->primalResidualControl<vector>(solverU, printToScreen, printInterval, "U");
+    DAUtility::primalResidualControl(solverU, printToScreen, "U");
 }
+
+// bound U
+DAUtility::boundVar(allOptions, U, printToScreen);

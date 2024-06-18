@@ -105,8 +105,14 @@ public:
     /// update intermediate variables that are dependent on the model states
     void updateIntermediateVariables();
 
-    /// return the value of the production term from the turbulence model 
-    void getTurbProdTerm(scalarList& prodTerm) const;
+    /// return the value of the production term from the turbulence model
+    void getTurbProdTerm(volScalarField& prodTerm) const;
+
+    /// return the value of the destruction term from the turbulence model
+    void getTurbProdOverDestruct(volScalarField& PoD) const;
+
+    /// return the value of the convective over production term from the turbulence model
+    void getTurbConvOverProd(volScalarField& CoP) const;
 
 #ifndef SolidDASolver
     /// get a reference to DATurbulenceModel
@@ -117,7 +123,6 @@ public:
     /// return thermo_ from DATurbulenceModel
     const fluidThermo& getThermo() const;
 #endif
-
 };
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

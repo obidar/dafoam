@@ -33,6 +33,7 @@
 #include "DAField.H"
 #include "DAPartDeriv.H"
 #include "DALinearEqn.H"
+#include "DARegression.H"
 #include "volPointInterpolation.H"
 #include "IOMRFZoneListDF.H"
 #include "interpolateSplineXY.H"
@@ -99,6 +100,9 @@ protected:
     /// DAStateInfo pointer
     autoPtr<DAStateInfo> daStateInfoPtr_;
 
+    /// DARegression pointer
+    autoPtr<DARegression> daRegressionPtr_;
+
     /// the stateInfo_ list from DAStateInfo object
     HashTable<wordList> stateInfo_;
 
@@ -135,19 +139,8 @@ protected:
     /// the derivative value computed by the forward mode primal solution.
     HashTable<PetscScalar> forwardADDerivVal_;
 
-    /// the maximal residual for primal solution
-    scalar primalMinRes_ = 1e10;
-
     /// the solution time for the previous primal solution
     scalar prevPrimalSolTime_ = -1e10;
-
-    /// setup maximal residual control and print the residual as needed
-    template<class classType>
-    void primalResidualControl(
-        const SolverPerformance<classType>& solverP,
-        const label printToScreen,
-        const label printInterval,
-        const word varName);
 
     label isPrintTime(
         const Time& runTime,
@@ -203,6 +196,47 @@ protected:
     /// save primal variable to time instance list for time accurate adjoint (unsteady)
     void saveTimeInstanceFieldTimeAccurate(label& timeInstanceI);
 
+    /// a hash table that save the unsteady obj funcs, e.g., time-averaged drag
+    HashTable<scalar> unsteadyObjFuncs_;
+
+    /// a scaling factor related to the unsteady obj func timeOperator e.g., in dFdW calculation
+    scalar unsteadyObjFuncsScaling_;
+
+    /// initial values for validateStates
+    HashTable<scalar> initStateVals_;
+
+    /// whether to use mean states for steady-solvers
+    label useMeanStates_ = 0;
+    /// if the meanStates is used, what is the step-averaging start
+    scalar meanStateStart_ = 0.5;
+    /// whether we have calculated the meanStates, if not (flow converge before meanStateStart_), we will not use meanStates
+    label meanStatesCalculated_ = 0;
+
+    /// step-averaged scalar states
+    PtrList<volScalarField> meanVolScalarStates_;
+
+    /// step-averaged model states
+    PtrList<volScalarField> meanModelStates_;
+
+    /// step-averaged vector states
+    PtrList<volVectorField> meanVolVectorStates_;
+
+    /// step-averaged surfaceScalar states
+    PtrList<surfaceScalarField> meanSurfaceScalarStates_;
+
+    /// whether to use the primal's std as the convergence criterion
+    label primalObjStdActive_;
+
+    /// the step series of the primal objective, used if primalObjStdTol->active is True
+    scalarList primalObjSeries_;
+
+    /// the standard deviation of the primal objective, used if primalObjStdTol->active is True
+    scalar primalObjStd_;
+
+    /// the tolerance of the primal objective std, used if primalObjStdTol->active is True
+    scalar primalObjStdTol_;
+
+
 public:
     /// Runtime type information
     TypeName("DASolver");
@@ -253,8 +287,52 @@ public:
         Vec dFdW,
         Vec psi);
 
+    /// calculate the step-averaged mean states for steady solvers
+    void calcMeanStates();
+
+    /// initialize the meanStates if needed
+    void initMeanStates();
+
+    /// zero out the mean states before calculating the meanStates
+    void zeroMeanStates();
+
+    /// assign meanStates to states when the primal is done.
+    void assignMeanStatesToStates();
+
     /// assign primal variables based on the current time instance
     void setTimeInstanceField(const label instanceI);
+
+    /// setTime for OF fields
+    void setTime(scalar time, label timeIndex)
+    {
+        runTimePtr_->setTime(time, timeIndex);
+    }
+
+    /// get the ddtScheme order
+    label getDdtSchemeOrder()
+    {
+        const fvSchemes& myFvSchemes = meshPtr_->thisDb().lookupObject<fvSchemes>("fvSchemes");
+
+        word ddtSchemeName = myFvSchemes.subDict("ddtSchemes").getWord("default");
+
+        if (ddtSchemeName == "steadyState")
+        {
+            return 0;
+        }
+        if (ddtSchemeName == "Euler")
+        {
+            return 1;
+        }
+        else if (ddtSchemeName == "backward")
+        {
+            return 2;
+        }
+        else
+        {
+            FatalErrorIn("") << "ddtScheme " << ddtSchemeName << " not supported! Options: steadyState, Euler, or backward"
+                             << abort(FatalError);
+        }
+    }
 
     /// return the value of objective function at the given time instance and name
     scalar getTimeInstanceObjFunc(
@@ -305,6 +383,11 @@ public:
         const Mat jacPCMat,
         KSP ksp);
 
+    /// Update the preconditioner matrix for the ksp object
+    void updateKSPPCMat(
+        Mat PCMat,
+        KSP ksp);
+
     /// solve the linear equation given a ksp and right-hand-side vector
     label solveLinearEqn(
         const KSP ksp,
@@ -350,7 +433,7 @@ public:
     void setBCToOFVars(
         const dictionary& dvSubDict,
         const scalar& BC);
-    
+
     /// get the BC val from OF var
     void getBCFromOFVars(
         const dictionary& dvSubDict,
@@ -522,6 +605,16 @@ public:
         const word designVarName,
         Vec dFdACT);
 
+    /// compute dFdRegPar AD
+    void calcdFdRegParAD(
+        const double* volCoords,
+        const double* states,
+        const double* parameters,
+        const word objFuncName,
+        const word designVarName,
+        const word modelName,
+        double* dFdRegPar);
+
     /// compute dRdWOld^T*Psi
     void calcdRdWOldTPsiAD(
         const label oldTimeLevel,
@@ -549,7 +642,7 @@ public:
     void registerStateVariableInput4AD(const label oldTimeLevel = 0);
 
     /// deactivate all state variables as the input for reverse-mode AD
-    void deactivateStateVariableInput4AD();
+    void deactivateStateVariableInput4AD(const label oldTimeLevel = 0);
 
     /// register field variables as the input for reverse-mode AD
     void registerFieldVariableInput4AD(
@@ -646,6 +739,12 @@ public:
         daFieldPtr_->resVec2OFResField(resVec);
     }
 
+    /// get a variable from OF layer
+    void getOFField(
+        const word fieldName,
+        const word fieldType,
+        Vec field) const;
+
     /// write the matrix in binary format
     void writeMatrixBinary(
         const Mat matIn,
@@ -723,6 +822,78 @@ public:
 
     /// calculate the values of all objective functions and print them to screen
     void printAllObjFuncs();
+
+    /// reset the unsteady objFunction to zero
+    void initUnsteadyObjFuncs()
+    {
+        forAll(daObjFuncPtrList_, idxI)
+        {
+            DAObjFunc& daObjFunc = daObjFuncPtrList_[idxI];
+            word objFuncName = daObjFunc.getObjFuncName();
+            word objFuncPart = daObjFunc.getObjFuncPart();
+            word uKey = objFuncName + objFuncPart;
+            unsteadyObjFuncs_[uKey] = 0.0;
+        }
+    }
+
+    /// return the index of a give objFuncName in daObjFuncPtrList_
+    label getObjFuncListIndex(
+        const word objFuncName,
+        const word objFuncPart)
+    {
+        forAll(daObjFuncPtrList_, idxI)
+        {
+            DAObjFunc& daObjFunc = daObjFuncPtrList_[idxI];
+            word objFuncName1 = daObjFunc.getObjFuncName();
+            word objFuncPart1 = daObjFunc.getObjFuncPart();
+            if (objFuncPart1 == objFuncPart && objFuncName1 == objFuncName)
+            {
+                return idxI;
+            }
+        }
+    }
+
+    /// calculate and save the unsteady objective function
+    void calcUnsteadyObjFuncs();
+
+    /// return the unsteady objFunc values
+    scalar getObjFuncValueUnsteady(const word objFuncName);
+
+    /// get the objective func scaling for unsteady adjoint
+    scalar getObjFuncUnsteadyScaling()
+    {
+        return unsteadyObjFuncsScaling_;
+    }
+
+    /// get the unsteady adjoint start time index
+    label getUnsteadyObjFuncStartTimeIndex()
+    {
+        // we assume the adjoint is for deltaT to endTime
+        // but users can also prescribed a custom time range
+        scalar startTime = this->getRunTime().deltaT().value();
+        scalar startTimeRead = daOptionPtr_->getSubDictOption<scalar>("unsteadyAdjoint", "objFuncStartTime");
+        if (startTimeRead >= 0)
+        {
+            startTime = startTimeRead;
+        }
+        scalar deltaT = this->getRunTime().deltaT().value();
+        return round(startTime / deltaT);
+    }
+
+    /// get the unsteady adjoint end time index
+    label getUnsteadyObjFuncEndTimeIndex()
+    {
+        // we assume the adjoint is for deltaT to endTime
+        // but users can also prescribed a custom time range
+        scalar endTime = this->getRunTime().endTime().value();
+        scalar endTimeRead = daOptionPtr_->getSubDictOption<scalar>("unsteadyAdjoint", "objFuncEndTime");
+        if (endTimeRead >= 0)
+        {
+            endTime = endTimeRead;
+        }
+        scalar deltaT = this->getRunTime().deltaT().value();
+        return round(endTime / deltaT);
+    }
 
     /// check the mesh quality and return meshOK
     label checkMesh() const
@@ -862,6 +1033,7 @@ public:
         Vec rDist,
         Vec targetForce,
         Vec center,
+        Vec xvVec,
         Vec fvSource);
 
     void calcdFvSourcedInputsTPsiAD(
@@ -872,6 +1044,7 @@ public:
         Vec rDist,
         Vec targetForce,
         Vec center,
+        Vec xvVec,
         Vec psi,
         Vec dFvSource);
 
@@ -1004,6 +1177,51 @@ public:
         return forwardADDerivVal_[objFuncName];
     }
 
+    /// get the number of regression model parameters
+    label getNRegressionParameters(word modelName)
+    {
+#ifdef SolidDASolver
+        return 0;
+#else
+        return daRegressionPtr_->nParameters(modelName);
+#endif
+    }
+
+    /// get the regression parameter
+    scalar getRegressionParameter(word modelName, const label idxI)
+    {
+#ifdef SolidDASolver
+        return 0.0;
+#else
+        return daRegressionPtr_->getParameter(modelName, idxI);
+#endif
+    }
+
+    /// set the regression parameter
+    void setRegressionParameter(word modelName, const label idxI, scalar val)
+    {
+#ifndef SolidDASolver
+        daRegressionPtr_->setParameter(modelName, idxI, val);
+#endif
+    }
+
+    /// call the compute method of the regression model
+    void regressionModelCompute()
+    {
+#ifndef SolidDASolver
+        daRegressionPtr_->compute();
+#endif
+    }
+
+    /// calculte [dR/dRegParameters]^T * psi
+    void calcdRdRegParTPsiAD(
+        const double* volCoords,
+        const double* states,
+        const double* parameters,
+        const double* seeds,
+        const word modelName,
+        double* product);
+
     /// update the primal state boundary condition based on the primalBC dict
     void setPrimalBoundaryConditions(const label printInfo = 1);
 
@@ -1013,18 +1231,48 @@ public:
     /// write the failed mesh to disk
     void writeFailedMesh();
 
+    /// read the state variables from the disk and assign the value to the prescribe time level
+    void readStateVars(
+        scalar timeVal,
+        label oldTimeLevel = 0);
+
+    /// calculate the PC mat using fvMatrix
+    void calcPCMatWithFvMatrix(Mat PCMat);
+
     /// initialize tensorflow functions and interfaces for callback
     void initTensorFlowFuncs(
         pyComputeInterface computeInterface,
         void* compute,
         pyJacVecProdInterface jacVecProdInterface,
-        void* jacVecProd)
+        void* jacVecProd,
+        pySetCharInterface setModelNameInterface,
+        void* setModelName)
     {
         DAUtility::pyCalcBetaInterface = computeInterface;
         DAUtility::pyCalcBeta = compute;
 
         DAUtility::pyCalcBetaJacVecProdInterface = jacVecProdInterface;
         DAUtility::pyCalcBetaJacVecProd = jacVecProd;
+
+        DAUtility::pySetModelNameInterface = setModelNameInterface;
+        DAUtility::pySetModelName = setModelName;
+    }
+
+    /// write state variables that are NO_WRITE to disk
+    void writeAdjStates(
+        const label writeMesh,
+        const wordList& additionalOutput);
+
+    /// return the elapsed clock time for testing speed
+    scalar getElapsedClockTime()
+    {
+        return runTimePtr_->elapsedClockTime();
+    }
+
+    /// return the elapsed CPU time for testing speed
+    scalar getElapsedCpuTime()
+    {
+        return runTimePtr_->elapsedCpuTime();
     }
 
 #ifdef CODI_AD_REVERSE
@@ -1033,30 +1281,122 @@ public:
     codi::RealReverse::Tape& globalADTape_;
 
 #endif
+
+    /// check if a field variable has nan
+    template<class classType>
+    label validateField(const classType& field);
+
+    /// check if a field variable has nan
+    template<class classType>
+    label validateVectorField(const classType& field);
+
+    /// check if the state variables have valid values
+    label validateStates();
+
+    /// calculate the initial value for validate states
+    void getInitStateVals(HashTable<scalar>& initState);
+
+    /// reset the states to its initial values this usually happens when we have nan in states
+    void resetStateVals();
+
+    /// write the sensitivity map for all wall surfaces
+    void writeSensMapSurface(
+        const word name,
+        const double* dFdXs,
+        const double* Xs,
+        const label size,
+        const double timeName);
+
+    /// write the sensitivity map for the entire field
+    void writeSensMapField(
+        const word name,
+        const double* dFdField,
+        const word fieldType,
+        const double timeName);
+
+    /// get the latest time solution from the case folder.
+    scalar getLatestTime()
+    {
+        instantList timeDirs = runTimePtr_->findTimes(runTimePtr_->path(), runTimePtr_->constant());
+        scalar latestTime = timeDirs.last().value();
+        return latestTime;
+    }
+
+    /// initialize the objStd vars
+    void initObjStd();
+
+    /// calculate the objective function's std
+    void calcObjStd(Time& runTime);
 };
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 template<class classType>
-void DASolver::primalResidualControl(
-    const SolverPerformance<classType>& solverP,
-    const label printToScreen,
-    const label printInterval,
-    const word varName)
+label DASolver::validateField(const classType& field)
 {
     /*
     Description:
-        Setup maximal residual control and print the residual as needed
+        Check if a field variable has invalid in it. If the values are valid, return 0
     */
-    if (mag(solverP.initialResidual()) < primalMinRes_)
+
+    forAll(field, idxI)
     {
-        primalMinRes_ = mag(solverP.initialResidual());
+        const scalar& val = field[idxI];
+        if (std::isnan(val) || std::isinf(val) || fabs(val) > 1e15)
+        {
+            return 1;
+        }
     }
-    if (printToScreen)
+    forAll(field.boundaryField(), patchI)
     {
-        Info << varName << " Initial residual: " << solverP.initialResidual() << endl
-             << varName << "   Final residual: " << solverP.finalResidual() << endl;
+        forAll(field.boundaryField()[patchI], faceI)
+        {
+            const scalar& val = field.boundaryField()[patchI][faceI];
+            if (std::isnan(val) || std::isinf(val) || fabs(val) > 1e15)
+            {
+                return 1;
+            }
+        }
     }
+
+    return 0;
+}
+
+template<class classType>
+label DASolver::validateVectorField(const classType& field)
+{
+    /*
+    Description:
+        Check if a field variable has invalid in it. If the values are valid, return 0
+    */
+
+    forAll(field, idxI)
+    {
+        for (label compI = 0; compI < 3; compI++)
+        {
+            const scalar& val = field[idxI][compI];
+            if (std::isnan(val) || std::isinf(val) || fabs(val) > 1e15)
+            {
+                return 1;
+            }
+        }
+    }
+    forAll(field.boundaryField(), patchI)
+    {
+        forAll(field.boundaryField()[patchI], faceI)
+        {
+            for (label compI = 0; compI < 3; compI++)
+            {
+                const scalar& val = field.boundaryField()[patchI][faceI][compI];
+                if (std::isnan(val) || std::isinf(val) || fabs(val) > 1e15)
+                {
+                    return 1;
+                }
+            }
+        }
+    }
+
+    return 0;
 }
 
 } // End namespace Foam

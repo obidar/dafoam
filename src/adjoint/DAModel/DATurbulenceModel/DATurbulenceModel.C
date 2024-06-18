@@ -480,14 +480,38 @@ label DATurbulenceModel::isPrintTime(
     }
 }
 
-void DATurbulenceModel::getTurbProdTerm(scalarList& prodTerm) const
+void DATurbulenceModel::getTurbProdTerm(volScalarField& prodTerm) const
 {
     /*
     Description:
         Return the value of the production term from the turbulence model 
     */
 
-    FatalErrorIn("DATurbulenceModel::getSAProdTerm")
+    FatalErrorIn("DATurbulenceModel::getTurbProdTerm")
+        << "Child class not implemented!"
+        << abort(FatalError);
+}
+
+void DATurbulenceModel::getTurbProdOverDestruct(volScalarField& PoD) const
+{
+    /*
+    Description:
+        Return the value of the production over destruction term from the turbulence model 
+    */
+
+    FatalErrorIn("DATurbulenceModel::getTurbProdOverDestruct")
+        << "Child class not implemented!"
+        << abort(FatalError);
+}
+
+void DATurbulenceModel::getTurbConvOverProd(volScalarField& CoP) const
+{
+    /*
+    Description:
+        Return the value of the convective over production term from the turbulence model 
+    */
+
+    FatalErrorIn("DATurbulenceModel::getTurbConvOverProd")
         << "Child class not implemented!"
         << abort(FatalError);
 }
@@ -538,6 +562,18 @@ void DATurbulenceModel::rhsSolvePseudoNuTildaEqn(const volScalarField& nuTildaSo
     */
 
     FatalErrorIn("DATurbulenceModel::rhsSolvePseudoNuTildaEqn")
+        << "Child class not implemented!"
+        << abort(FatalError);
+}
+
+/// return the diag(), upper(), and lower() scalarFields from the turbulence model's fvMatrix
+void DATurbulenceModel::getFvMatrixFields(
+    const word varName,
+    scalarField& diag,
+    scalarField& upper,
+    scalarField& lower)
+{
+    FatalErrorIn("DATurbulenceModel::getFvMatrixFields")
         << "Child class not implemented!"
         << abort(FatalError);
 }

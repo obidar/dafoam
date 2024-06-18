@@ -116,28 +116,6 @@ DAkOmegaFieldInversionOmega::DAkOmegaFieldInversionOmega(
           mesh.thisDb().lookupObject<volScalarField>("USingleComponentData")))
 {
 
-    // initialize printInterval_ we need to check whether it is a steady state
-    // or unsteady primal solver
-    IOdictionary fvSchemes(
-        IOobject(
-            "fvSchemes",
-            mesh.time().system(),
-            mesh,
-            IOobject::MUST_READ,
-            IOobject::NO_WRITE,
-            false));
-    word ddtScheme = word(fvSchemes.subDict("ddtSchemes").lookup("default"));
-    if (ddtScheme == "steadyState")
-    {
-        printInterval_ =
-            daOption.getAllOptions().lookupOrDefault<label>("printInterval", 100);
-    }
-    else
-    {
-        printInterval_ =
-            daOption.getAllOptions().lookupOrDefault<label>("printIntervalUnsteady", 500);
-    }
-
     // calculate the size of omegaWallFunction faces
     label nWallFaces = 0;
     forAll(omega_.boundaryField(), patchI)
@@ -504,7 +482,7 @@ void DAkOmegaFieldInversionOmega::addModelResidualCon(HashTable<List<List<word>>
 #endif
 }
 
-void DAkOmegaFieldInversionOmega::correct()
+void DAkOmegaFieldInversionOmega::correct(label printToScreen)
 {
     /*
     Descroption:
@@ -518,6 +496,7 @@ void DAkOmegaFieldInversionOmega::correct()
     // we will solve and update nuTilda
     solveTurbState_ = 1;
     dictionary dummyOptions;
+    dummyOptions.set("printToScreen", printToScreen);
     this->calcResiduals(dummyOptions);
     // after it, we reset solveTurbState_ = 0 such that calcResiduals will not
     // update nuTilda when calling from the adjoint class, i.e., solveAdjoint from DASolver.
@@ -545,8 +524,6 @@ void DAkOmegaFieldInversionOmega::calcResiduals(const dictionary& options)
     */
 
     // Copy and modify based on the "correct" function
-
-    label printToScreen = this->isPrintTime(mesh_.time(), printInterval_);
 
     word divKScheme = "div(phi,k)";
     word divOmegaScheme = "div(phi,omega)";
@@ -599,15 +576,12 @@ void DAkOmegaFieldInversionOmega::calcResiduals(const dictionary& options)
 
     if (solveTurbState_)
     {
+        label printToScreen = options.getLabel("printToScreen");
 
         // get the solver performance info such as initial
         // and final residuals
         SolverPerformance<scalar> solverOmega = solve(omegaEqn);
-        if (printToScreen)
-        {
-            Info << "omega Initial residual: " << solverOmega.initialResidual() << endl
-                 << "        Final residual: " << solverOmega.finalResidual() << endl;
-        }
+        DAUtility::primalResidualControl(solverOmega, printToScreen, "omega");
 
         DAUtility::boundVar(allOptions_, omega_, printToScreen);
     }
@@ -635,15 +609,12 @@ void DAkOmegaFieldInversionOmega::calcResiduals(const dictionary& options)
 
     if (solveTurbState_)
     {
+        label printToScreen = options.getLabel("printToScreen");
 
         // get the solver performance info such as initial
         // and final residuals
         SolverPerformance<scalar> solverK = solve(kEqn);
-        if (printToScreen)
-        {
-            Info << "k Initial residual: " << solverK.initialResidual() << endl
-                 << "    Final residual: " << solverK.finalResidual() << endl;
-        }
+        DAUtility::primalResidualControl(solverK, printToScreen, "k");
 
         DAUtility::boundVar(allOptions_, k_, printToScreen);
 

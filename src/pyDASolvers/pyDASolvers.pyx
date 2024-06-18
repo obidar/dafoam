@@ -24,6 +24,7 @@ cdef public api CPointerToPyArray(const double* data, int size) with gil:
 
 ctypedef void (*pyComputeInterface)(const double *, int, double *, int, void *)
 ctypedef void (*pyJacVecProdInterface)(const double *, double *, int, const double *, const double *, int, void *)
+ctypedef void (*pySetCharInterface)(const char *, void *)
 
 cdef void pyCalcBetaCallBack(const double* inputs, int n, double* outputs, int m, void *func):
     inputs_data = CPointerToPyArray(inputs, n)
@@ -36,6 +37,9 @@ cdef void pyCalcBetaJacVecProdCallBack(const double* inputs, double* inputs_b, i
     outputs_data = CPointerToPyArray(outputs, m)
     outputs_b_data = CPointerToPyArray(outputs_b, m)
     (<object>func)(inputs_data, inputs_b_data, n, outputs_data, outputs_b_data, m)
+
+cdef void pySetModelNameCallBack(const char* modelName, void *func):
+    (<object>func)(modelName)
 
 # declare cpp functions
 cdef extern from "DASolvers.H" namespace "Foam":
@@ -51,7 +55,8 @@ cdef extern from "DASolvers.H" namespace "Foam":
         void calcdFdWAD(PetscVec, PetscVec, char *, PetscVec)
         void createMLRKSP(PetscMat, PetscMat, PetscKSP)
         void createMLRKSPMatrixFree(PetscMat, PetscKSP)
-        void solveLinearEqn(PetscKSP, PetscVec, PetscVec)
+        void updateKSPPCMat(PetscMat, PetscKSP)
+        int solveLinearEqn(PetscKSP, PetscVec, PetscVec)
         void calcdRdBC(PetscVec, PetscVec, char *, PetscMat)
         void calcdFdBC(PetscVec, PetscVec, char *, char *, PetscVec)
         void calcdFdBCAD(PetscVec, PetscVec, char *, char *, PetscVec)
@@ -74,6 +79,8 @@ cdef extern from "DASolvers.H" namespace "Foam":
         void calcdRdFieldTPsiAD(PetscVec, PetscVec, PetscVec, char *, PetscVec)
         void calcdFdFieldAD(PetscVec, PetscVec, char *, char *, PetscVec)
         void calcdRdThermalTPsiAD(double *, double *, double *, double *, double *)
+        void calcdRdRegParTPsiAD(double *, double *, double *, double *, char *, double *)
+        void calcdFdRegParAD(double *, double *, double *, char *, char *, char *, double *)
         void calcdRdWOldTPsiAD(int, PetscVec, PetscVec)
         void convertMPIVec2SeqVec(PetscVec, PetscVec)
         void syncDAOptionToActuatorDVs()
@@ -92,12 +99,20 @@ cdef extern from "DASolvers.H" namespace "Foam":
         int getNCouplingPoints()
         int checkMesh()
         double getObjFuncValue(char *)
+        double getObjFuncValueUnsteady(char *)
+        double getObjFuncUnsteadyScaling()
+        double getElapsedClockTime()
+        double getElapsedCpuTime()
         void calcCouplingFaceCoords(double *, double *)
         void calcCouplingFaceCoordsAD(double *, double *, double *)
         void getForces(PetscVec, PetscVec, PetscVec)
         void getThermal(double *, double *, double *)
         void getThermalAD(char *, double *, double *, double *, double *)
         void setThermal(double *)
+        int getNRegressionParameters(char *)
+        void setRegressionParameter(char *, int, double)
+        void regressionModelCompute()
+        void getOFField(char *, char *, PetscVec)
         void getAcousticData(PetscVec, PetscVec, PetscVec, PetscVec, PetscVec, PetscVec, PetscVec, PetscVec, PetscVec, PetscVec, char*)
         void printAllOptions()
         void updateDAOption(object)
@@ -119,17 +134,29 @@ cdef extern from "DASolvers.H" namespace "Foam":
         void setFieldValue4GlobalCellI(char *, double, int, int)
         void setFieldValue4LocalCellI(char *, double, int, int)
         void updateBoundaryConditions(char *, char *)
+        void updateStateBoundaryConditions()
         void calcPrimalResidualStatistics(char *)
         double getForwardADDerivVal(char *)
         void calcResidualVec(PetscVec)
         void setPrimalBoundaryConditions(int)
-        void calcFvSource(char *, PetscVec, PetscVec, PetscVec, PetscVec, PetscVec, PetscVec)
-        void calcdFvSourcedInputsTPsiAD(char *, char *, PetscVec, PetscVec, PetscVec, PetscVec, PetscVec, PetscVec, PetscVec)
+        void calcFvSource(char *, PetscVec, PetscVec, PetscVec, PetscVec, PetscVec, PetscVec, PetscVec)
+        void calcdFvSourcedInputsTPsiAD(char *, char *, PetscVec, PetscVec, PetscVec, PetscVec, PetscVec, PetscVec, PetscVec, PetscVec)
         void calcForceProfile(char *, PetscVec, PetscVec, PetscVec, PetscVec)
         void calcdForceProfiledXvWAD(char *, char *, char *, PetscVec, PetscVec, PetscVec, PetscVec)
         void calcdForcedStateTPsiAD(char *, PetscVec, PetscVec, PetscVec, PetscVec)
         int runFPAdj(PetscVec, PetscVec, PetscVec, PetscVec)
-        void initTensorFlowFuncs(pyComputeInterface, void *, pyJacVecProdInterface, void *)
+        void initTensorFlowFuncs(pyComputeInterface, void *, pyJacVecProdInterface, void *, pySetCharInterface, void *)
+        void readStateVars(double, int)
+        void calcPCMatWithFvMatrix(PetscMat)
+        double getEndTime()
+        double getDeltaT()
+        void setTime(double, int)
+        int getDdtSchemeOrder()
+        int getUnsteadyObjFuncStartTimeIndex()
+        int getUnsteadyObjFuncEndTimeIndex()
+        void writeSensMapSurface(char *, double *, double *, int, double)
+        void writeSensMapField(char *, double *, char *, double)
+        double getLatestTime()
     
 # create python wrappers that call cpp functions
 cdef class pyDASolvers:
@@ -200,8 +227,11 @@ cdef class pyDASolvers:
     def createMLRKSPMatrixFree(self, Mat jacPCMat, KSP myKSP):
         self._thisptr.createMLRKSPMatrixFree(jacPCMat.mat, myKSP.ksp)
     
+    def updateKSPPCMat(self, Mat PCMat, KSP myKSP):
+        self._thisptr.updateKSPPCMat(PCMat.mat, myKSP.ksp)
+    
     def solveLinearEqn(self, KSP myKSP, Vec rhsVec, Vec solVec):
-        self._thisptr.solveLinearEqn(myKSP.ksp, rhsVec.vec, solVec.vec)
+        return self._thisptr.solveLinearEqn(myKSP.ksp, rhsVec.vec, solVec.vec)
 
     def calcdRdBC(self, Vec xvVec, Vec wVec, designVarName, Mat dRdBC):
         self._thisptr.calcdRdBC(xvVec.vec, wVec.vec, designVarName, dRdBC.mat)
@@ -357,6 +387,18 @@ cdef class pyDASolvers:
     
     def getObjFuncValue(self, objFuncName):
         return self._thisptr.getObjFuncValue(objFuncName)
+    
+    def getObjFuncValueUnsteady(self, objFuncName):
+        return self._thisptr.getObjFuncValueUnsteady(objFuncName)
+    
+    def getObjFuncUnsteadyScaling(self):
+        return self._thisptr.getObjFuncUnsteadyScaling()
+    
+    def getElapsedClockTime(self):
+        return self._thisptr.getElapsedClockTime()
+    
+    def getElapsedCpuTime(self):
+        return self._thisptr.getElapsedCpuTime()
         
     def calcCouplingFaceCoords(self, 
             np.ndarray[double, ndim=1, mode="c"] volCoords,
@@ -387,6 +429,9 @@ cdef class pyDASolvers:
 
     def getForces(self, Vec fX, Vec fY, Vec fZ):
         self._thisptr.getForces(fX.vec, fY.vec, fZ.vec)
+    
+    def getOFField(self, fieldName, fieldType, Vec fieldVec):
+        self._thisptr.getOFField(fieldName, fieldType, fieldVec.vec)
     
     def getThermal(self, 
             np.ndarray[double, ndim=1, mode="c"] volCoords,
@@ -439,6 +484,71 @@ cdef class pyDASolvers:
         assert len(thermal) == self.getNCouplingFaces() * 2, "invalid array size!"
         cdef double *thermal_data = <double*>thermal.data
         self._thisptr.setThermal(thermal_data)
+    
+    def getNRegressionParameters(self, modelName):
+        return self._thisptr.getNRegressionParameters(modelName)
+    
+    def setRegressionParameter(self, modelName, idx, val):
+        self._thisptr.setRegressionParameter(modelName, idx, val)
+    
+    def regressionModelCompute(self):
+        self._thisptr.regressionModelCompute()
+    
+    def calcdRdRegParTPsiAD(self, 
+            np.ndarray[double, ndim=1, mode="c"] volCoords,
+            np.ndarray[double, ndim=1, mode="c"] states,
+            np.ndarray[double, ndim=1, mode="c"] parameters,
+            np.ndarray[double, ndim=1, mode="c"] seeds,
+            modelName,
+            np.ndarray[double, ndim=1, mode="c"] product):
+        
+        assert len(volCoords) == self.getNLocalPoints() * 3, "invalid array size!"
+        assert len(states) == self.getNLocalAdjointStates(), "invalid array size!"
+        assert len(parameters) == self.getNRegressionParameters(modelName), "invalid array size!"
+        assert len(seeds) == self.getNLocalAdjointStates(), "invalid array size!"
+        assert len(product) == self.getNRegressionParameters(modelName), "invalid array size!"
+
+        cdef double *volCoords_data = <double*>volCoords.data
+        cdef double *states_data = <double*>states.data
+        cdef double *parameters_data = <double*>parameters.data
+        cdef double *seeds_data = <double*>seeds.data
+        cdef double *product_data = <double*>product.data
+
+        self._thisptr.calcdRdRegParTPsiAD(
+            volCoords_data, 
+            states_data, 
+            parameters_data, 
+            seeds_data, 
+            modelName,
+            product_data)
+    
+    def calcdFdRegParAD(self, 
+            np.ndarray[double, ndim=1, mode="c"] volCoords,
+            np.ndarray[double, ndim=1, mode="c"] states,
+            np.ndarray[double, ndim=1, mode="c"] parameters,
+            objFuncName,
+            designVarName,
+            modelName,
+            np.ndarray[double, ndim=1, mode="c"] dFdRegPar):
+        
+        assert len(volCoords) == self.getNLocalPoints() * 3, "invalid array size!"
+        assert len(states) == self.getNLocalAdjointStates(), "invalid array size!"
+        assert len(parameters) == self.getNRegressionParameters(modelName), "invalid array size!"
+        assert len(dFdRegPar) == self.getNRegressionParameters(modelName), "invalid array size!"
+
+        cdef double *volCoords_data = <double*>volCoords.data
+        cdef double *states_data = <double*>states.data
+        cdef double *parameters_data = <double*>parameters.data
+        cdef double *dFdRegPar_data = <double*>dFdRegPar.data
+
+        self._thisptr.calcdFdRegParAD(
+            volCoords_data, 
+            states_data, 
+            parameters_data, 
+            objFuncName,
+            designVarName,
+            modelName,
+            dFdRegPar_data)
 
     def getAcousticData(self, Vec x, Vec y, Vec z, Vec nX, Vec nY, Vec nZ, Vec a, Vec fX, Vec fY, Vec fZ, groupName):
         self._thisptr.getAcousticData(x.vec, y.vec, z.vec, nX.vec, nY.vec, nZ.vec, a.vec, fX.vec, fY.vec, fZ.vec, groupName)
@@ -491,6 +601,9 @@ cdef class pyDASolvers:
     def updateBoundaryConditions(self, fieldName, fieldType):
         self._thisptr.updateBoundaryConditions(fieldName, fieldType)
     
+    def updateStateBoundaryConditions(self):
+        self._thisptr.updateStateBoundaryConditions()
+    
     def calcPrimalResidualStatistics(self, mode):
         self._thisptr.calcPrimalResidualStatistics(mode)
     
@@ -503,11 +616,35 @@ cdef class pyDASolvers:
     def setPrimalBoundaryConditions(self, printInfo):
         self._thisptr.setPrimalBoundaryConditions(printInfo)
     
-    def calcFvSource(self, propName, Vec aForce, Vec tForce, Vec rDist, Vec targetForce, Vec center, Vec fvSource):
-        self._thisptr.calcFvSource(propName, aForce.vec, tForce.vec, rDist.vec, targetForce.vec, center.vec, fvSource.vec)
+    def readStateVars(self, timeVal, timeLevel):
+        self._thisptr.readStateVars(timeVal, timeLevel)
     
-    def calcdFvSourcedInputsTPsiAD(self, propName, mode, Vec aForce, Vec tForce, Vec rDist, Vec targetForce, Vec center, Vec psi, Vec dFvSource):
-        self._thisptr.calcdFvSourcedInputsTPsiAD(propName, mode, aForce.vec, tForce.vec, rDist.vec, targetForce.vec, center.vec, psi.vec, dFvSource.vec)
+    def calcPCMatWithFvMatrix(self, Mat PCMat):
+        self._thisptr.calcPCMatWithFvMatrix(PCMat.mat)
+    
+    def setTime(self, time, timeIndex):
+        self._thisptr.setTime(time, timeIndex)
+
+    def getDdtSchemeOrder(self):
+        return self._thisptr.getDdtSchemeOrder()
+    
+    def getEndTime(self):
+        return self._thisptr.getEndTime()
+    
+    def getDeltaT(self):
+        return self._thisptr.getDeltaT()
+    
+    def getUnsteadyObjFuncStartTimeIndex(self):
+        return self._thisptr.getUnsteadyObjFuncStartTimeIndex()
+    
+    def getUnsteadyObjFuncEndTimeIndex(self):
+        return self._thisptr.getUnsteadyObjFuncEndTimeIndex()
+    
+    def calcFvSource(self, propName, Vec aForce, Vec tForce, Vec rDist, Vec targetForce, Vec center, Vec xvVec, Vec fvSource):
+        self._thisptr.calcFvSource(propName, aForce.vec, tForce.vec, rDist.vec, targetForce.vec, center.vec, xvVec.vec, fvSource.vec)
+    
+    def calcdFvSourcedInputsTPsiAD(self, propName, mode, Vec aForce, Vec tForce, Vec rDist, Vec targetForce, Vec center, Vec xvVec, Vec psi, Vec dFvSource):
+        self._thisptr.calcdFvSourcedInputsTPsiAD(propName, mode, aForce.vec, tForce.vec, rDist.vec, targetForce.vec, center.vec, xvVec.vec, psi.vec, dFvSource.vec)
     
     def calcForceProfile(self, propName, Vec aForce, Vec tForce, Vec rDist, Vec integralForce):
         self._thisptr.calcForceProfile(propName, aForce.vec, tForce.vec, rDist.vec, integralForce.vec)
@@ -521,5 +658,51 @@ cdef class pyDASolvers:
     def runFPAdj(self, Vec xvVec, Vec wVec, Vec dFdW, Vec psi):
         return self._thisptr.runFPAdj(xvVec.vec, wVec.vec, dFdW.vec, psi.vec)
     
-    def initTensorFlowFuncs(self, compute, jacVecProd):
-        self._thisptr.initTensorFlowFuncs(pyCalcBetaCallBack, <void*>compute, pyCalcBetaJacVecProdCallBack, <void*>jacVecProd)
+    def initTensorFlowFuncs(self, compute, jacVecProd, setModelName):
+        self._thisptr.initTensorFlowFuncs(pyCalcBetaCallBack, <void*>compute, pyCalcBetaJacVecProdCallBack, <void*>jacVecProd, pySetModelNameCallBack, <void*>setModelName)
+    
+    def writeSensMapSurface(self, 
+            name,
+            np.ndarray[double, ndim=1, mode="c"] dFdXs,
+            np.ndarray[double, ndim=1, mode="c"] Xs,
+            size,
+            timeName):
+        
+        assert len(dFdXs) == size, "invalid array size!"
+        assert len(Xs) == size, "invalid array size!"
+
+        cdef double *dFdXs_data = <double*>dFdXs.data
+        cdef double *Xs_data = <double*>Xs.data
+
+        self._thisptr.writeSensMapSurface(
+            name.encode(), 
+            dFdXs_data, 
+            Xs_data, 
+            size,
+            timeName)
+    
+    def writeSensMapField(self, 
+            name,
+            np.ndarray[double, ndim=1, mode="c"] dFdField,
+            fieldType,
+            timeName):
+        
+        nCells = self.getNLocalCells()
+        if fieldType == "scalar":
+            assert len(dFdField) == nCells, "invalid array size!"
+        elif fieldType == "vector":
+            assert len(dFdField) == 3 * nCells, "invalid array size!"
+        else:
+            print("fieldType can be either scalar or vector")
+            exit(1)
+
+        cdef double *dFdField_data = <double*>dFdField.data
+
+        self._thisptr.writeSensMapField(
+            name.encode(), 
+            dFdField_data, 
+            fieldType.encode(), 
+            timeName)
+    
+    def getLatestTime(self):
+        return self._thisptr.getLatestTime()

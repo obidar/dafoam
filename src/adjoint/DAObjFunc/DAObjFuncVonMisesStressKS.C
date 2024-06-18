@@ -86,16 +86,16 @@ void DAObjFuncVonMisesStressKS::calcObjFunc(
     objFuncValue = 0.0;
 
     const objectRegistry& db = mesh_.thisDb();
-    //const volVectorField& D = db.lookupObject<volVectorField>("D");
+    const volTensorField& gradD = db.lookupObject<volTensorField>("gradD");
     const volScalarField& lambda = db.lookupObject<volScalarField>("solid:lambda");
     const volScalarField& mu = db.lookupObject<volScalarField>("solid:mu");
     const volScalarField& rho = db.lookupObject<volScalarField>("solid:rho");
-    const volTensorField& gradD = db.lookupObject<volTensorField>("gradD");
 
-    volSymmTensorField sigma = rho * (mu * twoSymm(gradD) + lambda * (I * tr(gradD)));
+    // volTensorField gradD(fvc::grad(D));
+    volSymmTensorField sigma = rho * (mu * twoSymm(gradD) + (lambda * I) * tr(gradD));
 
     // NOTE: vonMises stress is scaled by scale_ provided in the objFunc dict
-    volScalarField vonMises = scale_* sqrt((3.0 / 2.0) * magSqr(dev(sigma)));
+    volScalarField vonMises = scale_ * sqrt((3.0 / 2.0) * magSqr(dev(sigma)));
 
     scalar objValTmp = 0.0;
     forAll(objFuncCellSources, idxI)
@@ -120,6 +120,9 @@ void DAObjFuncVonMisesStressKS::calcObjFunc(
     expSumKS = objValTmp;
 
     objFuncValue = log(objValTmp) / coeffKS_;
+
+    // check if we need to calculate refDiff.
+    this->calcRefVar(objFuncValue);
 
     return;
 }

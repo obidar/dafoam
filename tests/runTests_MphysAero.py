@@ -17,7 +17,7 @@ from pygeo import geo_utils
 
 gcomm = MPI.COMM_WORLD
 
-os.chdir("./input/NACA0012")
+os.chdir("./reg_test_files-main/NACA0012")
 if gcomm.rank == 0:
     os.system("rm -rf 0 processor*")
     os.system("cp -r 0.incompressible 0")
@@ -94,7 +94,7 @@ daOptions = {
     "designVar": {
         "shape": {"designVarType": "FFD"},
         "aoa": {"designVarType": "AOA", "patches": ["inout"], "flowAxis": "x", "normalAxis": "y"},
-        "actuator_radius": {"designVarType": "ACTD", "actuatorName": "disk1", "comps": [4]},
+        "actuator_radius": {"designVarType": "ACTD", "actuatorName": "disk1", "comps": [7]},
         "actuator_center": {"designVarType": "ACTD", "actuatorName": "disk1", "comps": [0, 1, 2]},
         "uin": {"designVarType": "BC", "patches": ["inout"], "variable": "U", "comp": 0},
     },

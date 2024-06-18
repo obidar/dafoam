@@ -17,7 +17,7 @@ from pygeo import geo_utils
 
 gcomm = MPI.COMM_WORLD
 
-os.chdir("./input/NACA0012")
+os.chdir("./reg_test_files-main/NACA0012")
 if gcomm.rank == 0:
     os.system("rm -rf 0 processor*")
     os.system("cp -r 0.incompressible 0")
@@ -43,6 +43,17 @@ daOptions = {
         "transport:nu": 1.5e-5,
     },
     "objFunc": {
+        "CD": {
+            "part1": {
+                "type": "force",
+                "source": "patchToFace",
+                "patches": ["wing"],
+                "directionMode": "parallelToFlow",
+                "alphaName": "aoa",
+                "scale": 1.0 / (0.5 * U0 * U0 * A0),
+                "addToAdjoint": True,
+            }
+        },
         "CL": {
             "part1": {
                 "type": "force",

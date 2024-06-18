@@ -102,30 +102,28 @@ DAkEpsilon::DAkEpsilon(
 #ifdef IncompressibleFlow
           dimensionedScalar("kRes", dimensionSet(0, 2, -3, 0, 0, 0, 0), 0.0),
 #endif
-          zeroGradientFvPatchField<scalar>::typeName)
+          zeroGradientFvPatchField<scalar>::typeName),
+      betaFIK_(
+          IOobject(
+              "betaFIK",
+              mesh.time().timeName(),
+              mesh,
+              IOobject::READ_IF_PRESENT,
+              IOobject::AUTO_WRITE),
+          mesh,
+          dimensionedScalar("betaFIK", dimensionSet(0, 0, 0, 0, 0, 0, 0), 1.0),
+          "zeroGradient"),
+      betaFIEpsilon_(
+          IOobject(
+              "betaFIEpsilon",
+              mesh.time().timeName(),
+              mesh,
+              IOobject::READ_IF_PRESENT,
+              IOobject::AUTO_WRITE),
+          mesh,
+          dimensionedScalar("betaFIEpsilon", dimensionSet(0, 0, 0, 0, 0, 0, 0), 1.0),
+          "zeroGradient")
 {
-
-    // initialize printInterval_ we need to check whether it is a steady state
-    // or unsteady primal solver
-    IOdictionary fvSchemes(
-        IOobject(
-            "fvSchemes",
-            mesh.time().system(),
-            mesh,
-            IOobject::MUST_READ,
-            IOobject::NO_WRITE,
-            false));
-    word ddtScheme = word(fvSchemes.subDict("ddtSchemes").lookup("default"));
-    if (ddtScheme == "steadyState")
-    {
-        printInterval_ =
-            daOption.getAllOptions().lookupOrDefault<label>("printInterval", 100);
-    }
-    else
-    {
-        printInterval_ =
-            daOption.getAllOptions().lookupOrDefault<label>("printIntervalUnsteady", 500);
-    }
 
     // calculate the size of epsilonWallFunction faces
     label nWallFaces = 0;
@@ -481,7 +479,7 @@ void DAkEpsilon::addModelResidualCon(HashTable<List<List<word>>>& allCon) const
 #endif
 }
 
-void DAkEpsilon::correct()
+void DAkEpsilon::correct(label printToScreen)
 {
     /*
     Descroption:
@@ -495,6 +493,7 @@ void DAkEpsilon::correct()
     // we will solve and update nuTilda
     solveTurbState_ = 1;
     dictionary dummyOptions;
+    dummyOptions.set("printToScreen", printToScreen);
     this->calcResiduals(dummyOptions);
     // after it, we reset solveTurbState_ = 0 such that calcResiduals will not
     // update nuTilda when calling from the adjoint class, i.e., solveAdjoint from DASolver.
@@ -522,8 +521,6 @@ void DAkEpsilon::calcResiduals(const dictionary& options)
     */
 
     // Copy and modify based on the "correct" function
-
-    label printToScreen = this->isPrintTime(mesh_.time(), printInterval_);
 
     word divKScheme = "div(phi,k)";
     word divEpsilonScheme = "div(phi,epsilon)";
@@ -567,9 +564,9 @@ void DAkEpsilon::calcResiduals(const dictionary& options)
     // Dissipation equation
     tmp<fvScalarMatrix> epsEqn(
         fvm::ddt(phase_, rho_, epsilon_)
-            + fvm::div(phaseRhoPhi_, epsilon_)
+            + fvm::div(phaseRhoPhi_, epsilon_, divEpsilonScheme)
             - fvm::laplacian(phase_ * rho_ * DepsilonEff(), epsilon_)
-        == C1_ * phase_() * rho_() * G * epsilon_() / k_()
+        == C1_ * phase_() * rho_() * G * epsilon_() / k_() * betaFIEpsilon_()
             - fvm::SuSp((scalar(2.0 / 3.0) * C1_ - C3_) * phase_() * rho_() * divU, epsilon_)
             - fvm::Sp(C2_ * phase_() * rho_() * epsilon_() / k_(), epsilon_)
             + epsilonSource());
@@ -580,15 +577,12 @@ void DAkEpsilon::calcResiduals(const dictionary& options)
 
     if (solveTurbState_)
     {
+        label printToScreen = options.getLabel("printToScreen");
 
         // get the solver performance info such as initial
         // and final residuals
         SolverPerformance<scalar> solverEpsilon = solve(epsEqn);
-        if (printToScreen)
-        {
-            Info << "epsilon Initial residual: " << solverEpsilon.initialResidual() << endl
-                 << "          Final residual: " << solverEpsilon.finalResidual() << endl;
-        }
+        DAUtility::primalResidualControl(solverEpsilon, printToScreen, "epsilon");
 
         DAUtility::boundVar(allOptions_, epsilon_, printToScreen);
     }
@@ -608,7 +602,7 @@ void DAkEpsilon::calcResiduals(const dictionary& options)
         fvm::ddt(phase_, rho_, k_)
             + fvm::div(phaseRhoPhi_, k_, divKScheme)
             - fvm::laplacian(phase_ * rho_ * DkEff(), k_)
-        == phase_() * rho_() * G
+        == phase_() * rho_() * G * betaFIK_()
             - fvm::SuSp((2.0 / 3.0) * phase_() * rho_() * divU, k_)
             - fvm::Sp(phase_() * rho_() * epsilon_() / k_(), k_)
             + kSource());
@@ -617,15 +611,12 @@ void DAkEpsilon::calcResiduals(const dictionary& options)
 
     if (solveTurbState_)
     {
+        label printToScreen = options.getLabel("printToScreen");
 
         // get the solver performance info such as initial
         // and final residuals
         SolverPerformance<scalar> solverK = solve(kEqn);
-        if (printToScreen)
-        {
-            Info << "k Initial residual: " << solverK.initialResidual() << endl
-                 << "    Final residual: " << solverK.finalResidual() << endl;
-        }
+        DAUtility::primalResidualControl(solverK, printToScreen, "k");
 
         DAUtility::boundVar(allOptions_, k_, printToScreen);
 
@@ -640,6 +631,121 @@ void DAkEpsilon::calcResiduals(const dictionary& options)
     }
 
     return;
+}
+
+void DAkEpsilon::getFvMatrixFields(
+    const word varName,
+    scalarField& diag,
+    scalarField& upper,
+    scalarField& lower)
+{
+    /* 
+    Description:
+        return the diag(), upper(), and lower() scalarFields from the turbulence model's fvMatrix
+        this will be use to compute the preconditioner matrix
+    */
+
+    if (varName != "k" && varName != "epsilon")
+    {
+        FatalErrorIn(
+            "varName not valid. It has to be k or epsilon")
+            << exit(FatalError);
+    }
+
+    // Note: for compressible flow, the "this->phi()" function divides phi by fvc:interpolate(rho),
+    // while for the incompresssible "this->phi()" returns phi only
+    // see src/TurbulenceModels/compressible/compressibleTurbulenceModel.C line 62 to 73
+    volScalarField::Internal divU(
+        fvc::div(fvc::absolute(phi_ / fvc::interpolate(rho_), U_))().v());
+
+    tmp<volTensorField> tgradU = fvc::grad(U_);
+    volScalarField::Internal G(
+        "kEpsilon:G",
+        nut_.v() * (dev(twoSymm(tgradU().v())) && tgradU().v()));
+    tgradU.clear();
+
+    // special treatment for epsilon BC
+    this->correctEpsilonBoundaryConditions();
+
+    if (varName == "epsilon")
+    {
+        // Dissipation equation
+        fvScalarMatrix epsEqn(
+            fvm::ddt(phase_, rho_, epsilon_)
+                + fvm::div(phaseRhoPhi_, epsilon_, "div(pc)")
+                - fvm::laplacian(phase_ * rho_ * DepsilonEff(), epsilon_)
+            == C1_ * phase_() * rho_() * G * epsilon_() / k_() * betaFIEpsilon_()
+                - fvm::SuSp((scalar(2.0 / 3.0) * C1_ - C3_) * phase_() * rho_() * divU, epsilon_)
+                - fvm::Sp(C2_ * phase_() * rho_() * epsilon_() / k_(), epsilon_)
+                + epsilonSource());
+
+        epsEqn.relax();
+
+        // reset the corrected omega near wall cell to its perturbed value
+        this->setEpsilonNearWall();
+
+        diag = epsEqn.D();
+        upper = epsEqn.upper();
+        lower = epsEqn.lower();
+    }
+    else if (varName == "k")
+    {
+        fvScalarMatrix kEqn(
+            fvm::ddt(phase_, rho_, k_)
+                + fvm::div(phaseRhoPhi_, k_, "div(pc)")
+                - fvm::laplacian(phase_ * rho_ * DkEff(), k_)
+            == phase_() * rho_() * G * betaFIK_()
+                - fvm::SuSp((2.0 / 3.0) * phase_() * rho_() * divU, k_)
+                - fvm::Sp(phase_() * rho_() * epsilon_() / k_(), k_)
+                + kSource());
+
+        kEqn.relax();
+
+        diag = kEqn.D();
+        upper = kEqn.upper();
+        lower = kEqn.lower();
+    }
+}
+
+void DAkEpsilon::getTurbProdOverDestruct(volScalarField& PoD) const
+{
+    /*
+    Description:
+        Return the value of the production over destruction term from the turbulence model 
+    */
+    tmp<volTensorField> tgradU = fvc::grad(U_);
+    volScalarField::Internal G(
+        "kEpsilon:G",
+        nut_.v() * (dev(twoSymm(tgradU().v())) && tgradU().v()));
+
+    volScalarField::Internal P = phase_() * rho_() * G;
+    volScalarField::Internal D = phase_() * rho_() * epsilon_();
+
+    forAll(P, cellI)
+    {
+        PoD[cellI] = P[cellI] / (D[cellI] + 1e-16);
+    }
+}
+
+void DAkEpsilon::getTurbConvOverProd(volScalarField& CoP) const
+{
+    /*
+    Description:
+        Return the value of the convective over production term from the turbulence model 
+    */
+
+    tmp<volTensorField> tgradU = fvc::grad(U_);
+    volScalarField::Internal G(
+        "kEpsilon:G",
+        nut_.v() * (dev(twoSymm(tgradU().v())) && tgradU().v()));
+
+    volScalarField::Internal P = phase_() * rho_() * G;
+    volScalarField C = fvc::div(phaseRhoPhi_, k_);
+
+    forAll(P, cellI)
+    {
+        CoP[cellI] = C[cellI] / (P[cellI] + 1e-16);
+    }
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 

@@ -20,46 +20,126 @@ if len(sys.argv) != 1:
 
 gcomm = MPI.COMM_WORLD
 
-os.chdir("./input/CurvedCubeHexMesh")
+os.chdir("./reg_test_files-main/NACA0012Unsteady")
 
 if gcomm.rank == 0:
-    os.system("rm -rf 0 processor*")
-    os.system("cp -r 0.unsteady 0")
-    os.system("cp -r system/controlDict.unsteady system/controlDict")
-    os.system("cp -r system/fvSchemes.unsteady system/fvSchemes")
-    os.system("cp -r system/fvSolution.unsteady system/fvSolution")
-    os.system("cp -r constant/turbulenceProperties.safv3 constant/turbulenceProperties")
+    os.system("rm -rf processor*")
 
-replace_text_in_file("system/controlDict", "endTime         40;", "endTime         0.05;")
+twist0 = 30
+U0 = 10
+alpha0 = 0
 
 # test incompressible solvers
 daOptions = {
+    "designSurfaces": ["wing"],
     "solverName": "DAPimpleFoam",
-    "designSurfaces": ["wallsbump"],
-    "printIntervalUnsteady": 100,
-    "writeJacobians": ["all"],
-    "useAD": {"mode": "reverse"},
-    "unsteadyAdjoint": {"mode": "timeAccurateAdjoint", "nTimeInstances": 6},
+    "primalBC": {"U0": {"variable": "U", "patches": ["inout"], "value": [U0, 0, 0]}, "useWallFunction": True},
+    "unsteadyAdjoint": {
+        "mode": "timeAccurate",
+        "PCMatPrecomputeInterval": 5,
+        "PCMatUpdateInterval": 1,
+        "objFuncTimeOperator": "average",
+        "additionalOutput": ["betaFINuTilda"],
+    },
+    "printIntervalUnsteady": 1,
+    "fvSource": {
+        "disk1": {
+            "type": "actuatorDisk",
+            "source": "cylinderAnnulusSmooth",
+            "center": [-0.55, 0.0, 0.05],
+            "direction": [1.0, 0.0, 0.0],
+            "innerRadius": 0.01,
+            "outerRadius": 0.4,
+            "rotDir": "right",
+            "scale": 100.0,
+            "POD": 0.0,
+            "eps": 0.1,  # eps should be of cell size
+            "expM": 1.0,
+            "expN": 0.5,
+            "adjustThrust": 0,
+            "targetThrust": 1.0,
+        },
+    },
+    "regressionModel": {
+        "active": True,
+        "model1": {
+            "modelType": "neuralNetwork",
+            "inputNames": ["VoS", "PoD", "chiSA", "pGradStream", "PSoSS", "SCurv", "UOrth"],
+            "outputName": "betaFINuTilda",
+            "hiddenLayerNeurons": [5, 5],
+            "inputShift": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            "inputScale": [1.0, 0.00001, 0.01, 1.0, 1.0, 1.0, 1.0],
+            "outputShift": 1.0,
+            "outputScale": 1.0,
+            "activationFunction": "tanh",
+            "printInputInfo": True,
+            "writeFeatures": True,
+            "outputUpperBound": 1e2,
+            "outputLowerBound": -1e2,
+            "defaultOutputValue": 1.0,
+        },
+    },
     "objFunc": {
         "CD": {
             "part1": {
                 "type": "force",
                 "source": "patchToFace",
-                "patches": ["wallsbump"],
-                "directionMode": "fixedDirection",
-                "direction": [1.0, 0.0, 0.0],
+                "patches": ["wing"],
+                "directionMode": "parallelToFlow",
+                "alphaName": "alpha",
                 "scale": 1.0,
                 "addToAdjoint": True,
             }
         },
+        "CL": {
+            "part1": {
+                "type": "force",
+                "source": "patchToFace",
+                "patches": ["wing"],
+                "directionMode": "normalToFlow",
+                "alphaName": "alpha",
+                "scale": 1.0,
+                "addToAdjoint": False,
+            }
+        },
+        "CMZVAR": {
+            "part1": {
+                "type": "moment",
+                "source": "patchToFace",
+                "patches": ["wing"],
+                "axis": [0.0, 0.0, 1.0],
+                "center": [0.25, 0.0, 0.05],
+                "scale": 1.0,
+                "addToAdjoint": True,
+                "calcRefVar": True,
+                "ref": [0.1, 0.05, 0.04, 0.02, 0.02, 0.01, 0.0, -0.01, -0.01, -0.02],
+            }
+        },
     },
-    "primalMinResTol": 1e-16,
     "adjStateOrdering": "cell",
-    "adjEqnOption": {"pcFillLevel": 0, "jacMatReOrdering": "natural", "useNonZeroInitGuess": False},
-    "normalizeStates": {"U": 1.0, "p": 1.0, "nuTilda": 0.1, "phi": 1.0},
-    "adjPartDerivFDStep": {"State": 1e-7, "FFD": 1e-2},
-    "designVar": {},
-    "adjPCLag": 1000,
+    "adjEqnOption": {
+        "gmresRelTol": 1.0e-8,
+        "pcFillLevel": 1,
+        "jacMatReOrdering": "natural",
+        "useNonZeroInitGuess": True,
+    },
+    "normalizeStates": {
+        "U": 10,
+        "p": 50,
+        "nuTilda": 1e-3,
+        "phi": 1.0,
+    },
+    "designVar": {
+        "uin": {"designVarType": "BC", "patches": ["inout"], "variable": "U", "comp": 0},
+        "twist": {"designVarType": "FFD"},
+        "alpha": {"designVarType": "AOA", "patches": ["inout"], "flowAxis": "x", "normalAxis": "y"},
+        "actuator": {
+            "actuatorName": "disk1",
+            "designVarType": "ACTD",
+            "comps": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+        },
+        "parameter": {"designVarType": "RegPar", "modelName": "model1"},
+    },
 }
 
 # mesh warping parameters, users need to manually specify the symmetry plane
@@ -67,93 +147,149 @@ meshOptions = {
     "gridFile": os.getcwd(),
     "fileType": "OpenFOAM",
     # point and normal for the symmetry plane
-    "symmetryPlanes": [],
+    "symmetryPlanes": [[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]], [[0.0, 0.0, 0.1], [0.0, 0.0, 1.0]]],
 }
 
-# DVGeo
-DVGeo = DVGeometry("./FFD/bumpFFD.xyz")
-# select points
-iVol = 0
-pts = DVGeo.getLocalIndex(iVol)
-indexList = pts[2, 1, 2].flatten()
-PS = geo_utils.PointSelect("list", indexList)
-# shape
-DVGeo.addLocalDV("shapey", lower=-1.0, upper=1.0, axis="y", scale=1.0, pointSelect=PS)
-daOptions["designVar"]["shapey"] = {"designVarType": "FFD"}
+# =============================================================================
+# Design variable setup
+# =============================================================================
+DVGeo = DVGeometry("./FFD/FFD.xyz")
+DVGeo.addRefAxis("bodyAxis", xFraction=0.25, alignIndex="k")
+# twist
+def twist(val, geo):
+    for i in range(2):
+        geo.rot_z["bodyAxis"].coef[i] = -val[0]
 
-# DAFoam
+
+DVGeo.addGlobalDV("twist", [twist0], twist, lower=-100.0, upper=100.0, scale=1.0)
+
+
+def uin(val, geo):
+    inletU = float(val[0])
+    DASolver.setOption("primalBC", {"U0": {"variable": "U", "patches": ["inout"], "value": [inletU, 0, 0]}})
+    DASolver.updateDAOption()
+
+
+DVGeo.addGlobalDV("uin", [U0], uin, lower=0.0, upper=100.0, scale=1.0)
+
+
+def alpha(val, geo):
+    aoa = val[0] * np.pi / 180.0
+    inletU = [float(U0 * np.cos(aoa)), float(U0 * np.sin(aoa)), 0]
+    DASolver.setOption("primalBC", {"U0": {"variable": "U", "patches": ["inout"], "value": inletU}})
+    DASolver.updateDAOption()
+
+
+DVGeo.addGlobalDV("alpha", value=[alpha0], func=alpha, lower=0.0, upper=10.0, scale=1.0)
+
+
+def actuator(val, geo):
+    actX = float(val[0])
+    actY = float(val[1])
+    actZ = float(val[2])
+    actDirx = float(val[3])
+    actDiry = float(val[4])
+    actDirz = float(val[5])
+    actR1 = float(val[6])
+    actR2 = float(val[7])
+    actScale = float(val[8])
+    actPOD = float(val[9])
+    actExpM = float(val[10])
+    actExpN = float(val[11])
+    T = float(val[12])
+    DASolver.setOption(
+        "fvSource",
+        {
+            "disk1": {
+                "type": "actuatorDisk",
+                "source": "cylinderAnnulusSmooth",
+                "center": [actX, actY, actZ],
+                "direction": [actDirx, actDiry, actDirz],
+                "innerRadius": actR1,
+                "outerRadius": actR2,
+                "rotDir": "right",
+                "scale": actScale,
+                "POD": actPOD,
+                "eps": 0.1,  # eps should be of cell size
+                "expM": actExpM,
+                "expN": actExpN,
+                "adjustThrust": 0,
+                "targetThrust": T,
+            },
+        },
+    )
+    DASolver.updateDAOption()
+
+
+# actuator
+DVGeo.addGlobalDV(
+    "actuator",
+    value=[-0.55, 0.0, 0.05, 1.0, 0.0, 0.0, 0.01, 0.4, 100.0, 0.0, 1.0, 0.5, 1.0],
+    func=actuator,
+    lower=-100.0,
+    upper=100.0,
+    scale=1.0,
+)
+
+
+def regModel(val, geo):
+    for idxI in range(len(val)):
+        val1 = float(val[idxI])
+        DASolver.setRegressionParameter("model1", idxI, val1)
+
+
+# =============================================================================
+# DAFoam initialization
+# =============================================================================
 DASolver = PYDAFOAM(options=daOptions, comm=gcomm)
+
+nParameters = DASolver.getNRegressionParameters("model1")
+
+parameter0 = np.ones(nParameters) * 0.1
+DASolver.addInternalDV("parameter", parameter0, regModel, lower=-100.0, upper=100.0, scale=1.0)
+
 DASolver.setDVGeo(DVGeo)
 mesh = USMesh(options=meshOptions, comm=gcomm)
 DASolver.printFamilyList()
 DASolver.setMesh(mesh)
-# set evalFuncs
 evalFuncs = []
 DASolver.setEvalFuncs(evalFuncs)
 
-# DVCon
+# =============================================================================
+# Constraint setup
+# =============================================================================
 DVCon = DVConstraints()
 DVCon.setDVGeo(DVGeo)
-[p0, v1, v2] = DASolver.getTriangulatedMeshSurface(groupName=DASolver.designSurfacesGroup)
-surf = [p0, v1, v2]
-DVCon.setSurface(surf)
+DVCon.setSurface(DASolver.getTriangulatedMeshSurface(groupName=DASolver.designSurfacesGroup))
 
-# optFuncs
-def setObjFuncsUnsteady(DASolver, funcs, evalFuncs):
-    nTimeInstances = DASolver.getOption("unsteadyAdjoint")["nTimeInstances"]
-    for func in evalFuncs:
-        avgObjVal = 0.0
-        for i in range(1, nTimeInstances):
-            avgObjVal += DASolver.getTimeInstanceObjFunc(i, func)
-        funcs[func] = avgObjVal # / (nTimeInstances - 1)
-
-    funcs["fail"] = False
-
-
-def setObjFuncsSensUnsteady(DASolver, funcs, funcsSensAllTimeInstances, funcsSensCombined):
-
-    nTimeInstances = 1.0 * len(funcsSensAllTimeInstances)
-    for funcsSens in funcsSensAllTimeInstances:
-        for objFunc in funcsSens:
-            if objFunc != "fail":
-                funcsSensCombined[objFunc] = {}
-                for dv in funcsSens[objFunc]:
-                    funcsSensCombined[objFunc][dv] = np.zeros_like(funcsSens[objFunc][dv], dtype="d")
-
-    for funcsSens in funcsSensAllTimeInstances:
-        for objFunc in funcsSens:
-            if objFunc != "fail":
-                for dv in funcsSens[objFunc]:
-                    funcsSensCombined[objFunc][dv] += funcsSens[objFunc][dv] # / nTimeInstances
-
-    funcsSensCombined["fail"] = False
-
-    if gcomm.rank == 0:
-        print(funcsSensCombined)
-    return
-
+# =============================================================================
+# Initialize optFuncs for optimization
+# =============================================================================
 optFuncs.DASolver = DASolver
 optFuncs.DVGeo = DVGeo
 optFuncs.DVCon = DVCon
 optFuncs.evalFuncs = evalFuncs
 optFuncs.gcomm = gcomm
-optFuncs.setObjFuncsUnsteady = setObjFuncsUnsteady
-optFuncs.setObjFuncsSensUnsteady = setObjFuncsSensUnsteady
 
 # Run
 if calcFDSens == 1:
-    optFuncs.calcFDSens(objFun=optFuncs.calcObjFuncValuesUnsteady, fileName="sensFD.txt")
+    optFuncs.calcFDSens()
 else:
     DASolver.runColoring()
     xDV = DVGeo.getValues()
+    iDV = DASolver.getInternalDVDict()
+    allDV = {**xDV, **iDV}
     funcs = {}
-    funcs, fail = optFuncs.calcObjFuncValuesUnsteady(xDV)
+    funcs, fail = optFuncs.calcObjFuncValues(allDV)
     funcsSens = {}
-    funcsSens, fail = optFuncs.calcObjFuncSensUnsteady(xDV, funcs)
+    funcsSens, fail = optFuncs.calcObjFuncSens(allDV, funcs)
 
-    # this code is not fully implemented yet, so do not test it
-    funcsSens["CD"]["shapey"] = 0
-    
+    parameterNormU = np.linalg.norm(funcsSens["CD"]["parameter"])
+    funcsSens["CD"]["parameter"] = parameterNormU
+
+    parameterNormM = np.linalg.norm(funcsSens["CMZVAR"]["parameter"])
+    funcsSens["CMZVAR"]["parameter"] = parameterNormM
+
     if gcomm.rank == 0:
         reg_write_dict(funcs, 1e-8, 1e-10)
         reg_write_dict(funcsSens, 1e-4, 1e-6)

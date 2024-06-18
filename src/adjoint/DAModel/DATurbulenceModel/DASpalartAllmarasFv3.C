@@ -106,30 +106,18 @@ DASpalartAllmarasFv3::DASpalartAllmarasFv3(
               IOobject::NO_WRITE),
           nuTilda_),
       pseudoNuTildaEqn_(fvm::div(phi_, pseudoNuTilda_, "div(phi,nuTilda)")),
-      y_(mesh.thisDb().lookupObject<volScalarField>("yWall"))
+      y_(mesh.thisDb().lookupObject<volScalarField>("yWall")),
+      betaFINuTilda_(
+          IOobject(
+              "betaFINuTilda",
+              mesh.time().timeName(),
+              mesh,
+              IOobject::READ_IF_PRESENT,
+              IOobject::AUTO_WRITE),
+          mesh,
+          dimensionedScalar("betaFINuTilda", dimensionSet(0, 0, 0, 0, 0, 0, 0), 1.0),
+          "zeroGradient")
 {
-
-    // initialize printInterval_ we need to check whether it is a steady state
-    // or unsteady primal solver
-    IOdictionary fvSchemes(
-        IOobject(
-            "fvSchemes",
-            mesh.time().system(),
-            mesh,
-            IOobject::MUST_READ,
-            IOobject::NO_WRITE,
-            false));
-    word ddtScheme = word(fvSchemes.subDict("ddtSchemes").lookup("default"));
-    if (ddtScheme == "steadyState")
-    {
-        printInterval_ =
-            daOption.getAllOptions().lookupOrDefault<label>("printInterval", 100);
-    }
-    else
-    {
-        printInterval_ =
-            daOption.getAllOptions().lookupOrDefault<label>("printIntervalUnsteady", 500);
-    }
 
     // get fvSolution and fvSchemes info for fixed-point adjoint
     const fvSolution& myFvSolution = mesh.thisDb().lookupObject<fvSolution>("fvSolution");
@@ -410,7 +398,7 @@ void DASpalartAllmarasFv3::addModelResidualCon(HashTable<List<List<word>>>& allC
 #endif
 }
 
-void DASpalartAllmarasFv3::correct()
+void DASpalartAllmarasFv3::correct(label printToScreen)
 {
     /*
     Descroption:
@@ -424,6 +412,7 @@ void DASpalartAllmarasFv3::correct()
     // we will solve and update nuTilda
     solveTurbState_ = 1;
     dictionary dummyOptions;
+    dummyOptions.set("printToScreen", printToScreen);
     this->calcResiduals(dummyOptions);
     // after it, we reset solveTurbState_ = 0 such that calcResiduals will not
     // update nuTilda when calling from the adjoint class, i.e., solveAdjoint from DASolver.
@@ -452,8 +441,6 @@ void DASpalartAllmarasFv3::calcResiduals(const dictionary& options)
 
     // Copy and modify based on the "correct" function
 
-    label printToScreen = this->isPrintTime(mesh_.time(), printInterval_);
-
     word divNuTildaScheme = "div(phi,nuTilda)";
 
     label isPC = 0;
@@ -480,22 +467,19 @@ void DASpalartAllmarasFv3::calcResiduals(const dictionary& options)
             + fvm::div(phaseRhoPhi_, nuTilda_, divNuTildaScheme)
             - fvm::laplacian(phase_ * rho_ * DnuTildaEff(), nuTilda_)
             - Cb2_ / sigmaNut_ * phase_ * rho_ * magSqr(fvc::grad(nuTilda_))
-        == Cb1_ * phase_ * rho_ * Stilda * nuTilda_
+        == Cb1_ * phase_ * rho_ * Stilda * nuTilda_ * betaFINuTilda_
             - fvm::Sp(Cw1_ * phase_ * rho_ * fw(Stilda) * nuTilda_ / sqr(y_), nuTilda_));
 
     nuTildaEqn.ref().relax();
 
     if (solveTurbState_)
     {
+        label printToScreen = options.getLabel("printToScreen");
 
         // get the solver performance info such as initial
         // and final residuals
         SolverPerformance<scalar> solverNuTilda = solve(nuTildaEqn);
-        if (printToScreen)
-        {
-            Info << "nuTilda Initial residual: " << solverNuTilda.initialResidual() << endl
-                 << "          Final residual: " << solverNuTilda.finalResidual() << endl;
-        }
+        DAUtility::primalResidualControl(solverNuTilda, printToScreen, "nuTilda");
 
         DAUtility::boundVar(allOptions_, nuTilda_, printToScreen);
         nuTilda_.correctBoundaryConditions();
@@ -682,7 +666,7 @@ void DASpalartAllmarasFv3::calcLduResidualTurb(volScalarField& nuTildaRes)
         fvm::div(phi_, nuTilda_, "div(phi,nuTilda)")
             - fvm::laplacian(DnuTildaEff(), nuTilda_)
             - Cb2_ / sigmaNut_ * magSqr(fvc::grad(nuTilda_))
-        == Cb1_ * Stilda * nuTilda_
+        == Cb1_ * Stilda * nuTilda_ * betaFINuTilda_
             - fvm::Sp(Cw1_ * fw(Stilda) * nuTilda_ / sqr(y_), nuTilda_));
 
     List<scalar>& nuTildaSource = nuTildaEqn.source();
@@ -714,6 +698,93 @@ void DASpalartAllmarasFv3::calcLduResidualTurb(volScalarField& nuTildaRes)
 
     // Below is not necessary, but it doesn't hurt
     nuTildaRes.correctBoundaryConditions();
+}
+
+void DASpalartAllmarasFv3::getFvMatrixFields(
+    const word varName,
+    scalarField& diag,
+    scalarField& upper,
+    scalarField& lower)
+{
+    /* 
+    Description:
+        return the diag(), upper(), and lower() scalarFields from the turbulence model's fvMatrix
+        this will be use to compute the preconditioner matrix
+    */
+
+    if (varName != "nuTilda")
+    {
+        FatalErrorIn(
+            "varName not valid. It has to be nuTilda")
+            << exit(FatalError);
+    }
+
+    const volScalarField chi(this->chi());
+    const volScalarField fv1(this->fv1(chi));
+
+    const volScalarField Stilda(
+        this->fv3(chi, fv1) * ::sqrt(2.0) * mag(skew(fvc::grad(U_)))
+        + this->fv2(chi, fv1) * nuTilda_ / sqr(kappa_ * y_));
+
+    fvScalarMatrix nuTildaEqn(
+        fvm::ddt(phase_, rho_, nuTilda_)
+            + fvm::div(phaseRhoPhi_, nuTilda_, "div(pc)")
+            - fvm::laplacian(phase_ * rho_ * DnuTildaEff(), nuTilda_)
+            - Cb2_ / sigmaNut_ * phase_ * rho_ * magSqr(fvc::grad(nuTilda_))
+        == Cb1_ * phase_ * rho_ * Stilda * nuTilda_ * betaFINuTilda_
+            - fvm::Sp(Cw1_ * phase_ * rho_ * fw(Stilda) * nuTilda_ / sqr(y_), nuTilda_));
+
+    nuTildaEqn.relax();
+
+    diag = nuTildaEqn.D();
+    upper = nuTildaEqn.upper();
+    lower = nuTildaEqn.lower();
+}
+
+void DASpalartAllmarasFv3::getTurbProdOverDestruct(volScalarField& PoD) const
+{
+    /*
+    Description:
+        Return the value of the production over destruction term from the turbulence model 
+    */
+
+    const volScalarField chi(this->chi());
+    const volScalarField fv1(this->fv1(chi));
+
+    const volScalarField Stilda(
+        this->fv3(chi, fv1) * ::sqrt(2.0) * mag(skew(fvc::grad(U_)))
+        + this->fv2(chi, fv1) * nuTilda_ / sqr(kappa_ * y_));
+
+    volScalarField P = Cb1_ * phase_ * rho_ * Stilda * nuTilda_;
+    volScalarField D = Cw1_ * phase_ * rho_ * fw(Stilda) * sqr(nuTilda_ / y_);
+
+    forAll(P, cellI)
+    {
+        PoD[cellI] = P[cellI] / (D[cellI] + 1e-16);
+    }
+}
+
+void DASpalartAllmarasFv3::getTurbConvOverProd(volScalarField& CoP) const
+{
+    /*
+    Description:
+        Return the value of the convective over production term from the turbulence model 
+    */
+
+    const volScalarField chi(this->chi());
+    const volScalarField fv1(this->fv1(chi));
+
+    const volScalarField Stilda(
+        this->fv3(chi, fv1) * ::sqrt(2.0) * mag(skew(fvc::grad(U_)))
+        + this->fv2(chi, fv1) * nuTilda_ / sqr(kappa_ * y_));
+
+    volScalarField P = Cb1_ * phase_ * rho_ * Stilda * nuTilda_;
+    volScalarField C = fvc::div(phaseRhoPhi_, nuTilda_);
+
+    forAll(P, cellI)
+    {
+        CoP[cellI] = C[cellI] / (P[cellI] + 1e-16);
+    }
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 

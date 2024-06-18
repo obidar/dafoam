@@ -103,7 +103,7 @@ void DAResidualPimpleFoam::calcResiduals(const dictionary& options)
         + daTurb_.divDevReff(U_)
         - fvSource_);
 
-    if (mode_ == "hybridAdjoint")
+    if (mode_ == "hybrid")
     {
         UEqn -= fvm::ddt(U_);
     }
@@ -120,26 +120,31 @@ void DAResidualPimpleFoam::calcResiduals(const dictionary& options)
     scalar pRefValue = 0.0;
 
     volScalarField rAU(1.0 / UEqn.A());
-    //volVectorField HbyA(constrainHbyA(rAU*UEqn.H(), U_, p_));
     //***************** NOTE *******************
-    // constrainHbyA has been used since OpenFOAM-v1606; however, We do NOT use the constrainHbyA
-    // function in DAFoam because we found it significantly degrades the accuracy of shape derivatives.
-    // Basically, we should not constrain any variable because it will create discontinuity.
-    // Instead, we use the old implementation used in OpenFOAM-3.0+ and before
-    volVectorField HbyA("HbyA", U_);
-    HbyA = rAU * UEqn.H();
+    // constrainHbyA has been used since OpenFOAM-v1606; however, it may degrade the accuracy of derivatives
+    // because constraining variables will create discontinuity. Here we have a option to use the old
+    // implementation in OpenFOAM-3.0+ and before (no constraint for HbyA)
+    autoPtr<volVectorField> HbyAPtr = nullptr;
+    label useConstrainHbyA = daOption_.getOption<label>("useConstrainHbyA");
+    if (useConstrainHbyA)
+    {
+        HbyAPtr.reset(new volVectorField(constrainHbyA(rAU * UEqn.H(), U_, p_)));
+    }
+    else
+    {
+        HbyAPtr.reset(new volVectorField("HbyA", U_));
+        HbyAPtr() = rAU * UEqn.H();
+    }
+    volVectorField& HbyA = HbyAPtr();
 
     surfaceScalarField phiHbyA(
         "phiHbyA",
-        fvc::flux(HbyA)
-            + fvc::interpolate(rAU) * fvc::ddtCorr(U_, phi_));
+        fvc::flux(HbyA));
 
-    if (mode_ == "hybridAdjoint")
+    if (p_.needReference())
     {
-        phiHbyA -= fvc::interpolate(rAU) * fvc::ddtCorr(U_, phi_);
+        adjustPhi(phiHbyA, U_, p_);
     }
-
-    adjustPhi(phiHbyA, U_, p_);
 
     tmp<volScalarField> rAtU(rAU);
 
@@ -165,6 +170,199 @@ void DAResidualPimpleFoam::calcResiduals(const dictionary& options)
     phiRes_ = phiHbyA - pEqn.flux() - phi_;
     // need to normalize phiRes
     normalizePhiResiduals(phiRes);
+}
+
+void DAResidualPimpleFoam::calcPCMatWithFvMatrix(Mat PCMat)
+{
+    /* 
+    Description:
+        Calculate the diagonal block of the preconditioner matrix dRdWTPC using the fvMatrix
+    */
+
+    const labelUList& owner = mesh_.owner();
+    const labelUList& neighbour = mesh_.neighbour();
+
+    PetscScalar val;
+
+    dictionary normStateDict = daOption_.getAllOptions().subDict("normalizeStates");
+    wordList normResDict = daOption_.getOption<wordList>("normalizeResiduals");
+
+    scalar UScaling = 1.0;
+    if (normStateDict.found("U"))
+    {
+        UScaling = normStateDict.getScalar("U");
+    }
+    scalar UResScaling = 1.0;
+
+    fvVectorMatrix UEqn(
+        fvm::ddt(U_)
+        + fvm::div(phi_, U_, "div(pc)")
+        + daTurb_.divDevReff(U_)
+        - fvSource_);
+
+    // set the val before relaxing UEqn!
+
+    // set diag
+    forAll(U_, cellI)
+    {
+        if (normResDict.found("URes"))
+        {
+            UResScaling = mesh_.V()[cellI];
+        }
+        for (label i = 0; i < 3; i++)
+        {
+            PetscInt rowI = daIndex_.getGlobalAdjointStateIndex("U", cellI, i);
+            PetscInt colI = rowI;
+            scalarField D = UEqn.D();
+            scalar val1 = D[cellI] * UScaling / UResScaling;
+            assignValueCheckAD(val, val1);
+            MatSetValues(PCMat, 1, &rowI, 1, &colI, &val, INSERT_VALUES);
+        }
+    }
+
+    // set lower/owner
+    for (label faceI = 0; faceI < daIndex_.nLocalInternalFaces; faceI++)
+    {
+        label ownerCellI = owner[faceI];
+        label neighbourCellI = neighbour[faceI];
+
+        if (normResDict.found("URes"))
+        {
+            UResScaling = mesh_.V()[neighbourCellI];
+        }
+
+        for (label i = 0; i < 3; i++)
+        {
+            PetscInt rowI = daIndex_.getGlobalAdjointStateIndex("U", neighbourCellI, i);
+            PetscInt colI = daIndex_.getGlobalAdjointStateIndex("U", ownerCellI, i);
+            scalar val1 = UEqn.lower()[faceI] * UScaling / UResScaling;
+            assignValueCheckAD(val, val1);
+            MatSetValues(PCMat, 1, &colI, 1, &rowI, &val, INSERT_VALUES);
+        }
+    }
+
+    // set upper/neighbour
+    for (label faceI = 0; faceI < daIndex_.nLocalInternalFaces; faceI++)
+    {
+        label ownerCellI = owner[faceI];
+        label neighbourCellI = neighbour[faceI];
+
+        if (normResDict.found("URes"))
+        {
+            UResScaling = mesh_.V()[ownerCellI];
+        }
+
+        for (label i = 0; i < 3; i++)
+        {
+            PetscInt rowI = daIndex_.getGlobalAdjointStateIndex("U", ownerCellI, i);
+            PetscInt colI = daIndex_.getGlobalAdjointStateIndex("U", neighbourCellI, i);
+            scalar val1 = UEqn.upper()[faceI] * UScaling / UResScaling;
+            assignValueCheckAD(val, val1);
+            MatSetValues(PCMat, 1, &colI, 1, &rowI, &val, INSERT_VALUES);
+        }
+    }
+
+    UEqn.relax();
+    label pRefCell = 0;
+    scalar pRefValue = 0.0;
+
+    volScalarField rAU(1.0 / UEqn.A());
+    autoPtr<volVectorField> HbyAPtr = nullptr;
+    label useConstrainHbyA = daOption_.getOption<label>("useConstrainHbyA");
+    if (useConstrainHbyA)
+    {
+        HbyAPtr.reset(new volVectorField(constrainHbyA(rAU * UEqn.H(), U_, p_)));
+    }
+    else
+    {
+        HbyAPtr.reset(new volVectorField("HbyA", U_));
+        HbyAPtr() = rAU * UEqn.H();
+    }
+    volVectorField& HbyA = HbyAPtr();
+
+    surfaceScalarField phiHbyA(
+        "phiHbyA",
+        fvc::flux(HbyA));
+
+    if (p_.needReference())
+    {
+        adjustPhi(phiHbyA, U_, p_);
+    }
+
+    tmp<volScalarField> rAtU(rAU);
+
+    if (pimple_.consistent())
+    {
+        rAtU = 1.0 / max(1.0 / rAU - UEqn.H1(), 0.1 / rAU);
+        phiHbyA +=
+            fvc::interpolate(rAtU() - rAU) * fvc::snGrad(p_) * mesh_.magSf();
+        HbyA -= (rAU - rAtU()) * fvc::grad(p_);
+    }
+
+    fvScalarMatrix pEqn(
+        fvm::laplacian(rAtU(), p_)
+        == fvc::div(phiHbyA));
+
+    pEqn.setReference(pRefCell, pRefValue);
+
+    // ********* p
+    scalar pScaling = 1.0;
+    if (normStateDict.found("p"))
+    {
+        pScaling = normStateDict.getScalar("p");
+    }
+    scalar pResScaling = 1.0;
+    // set diag
+    forAll(p_, cellI)
+    {
+        if (normResDict.found("pRes"))
+        {
+            pResScaling = mesh_.V()[cellI];
+        }
+
+        PetscInt rowI = daIndex_.getGlobalAdjointStateIndex("p", cellI);
+        PetscInt colI = rowI;
+        scalarField D = pEqn.D();
+        scalar val1 = D[cellI] * pScaling / pResScaling;
+        assignValueCheckAD(val, val1);
+        MatSetValues(PCMat, 1, &rowI, 1, &colI, &val, INSERT_VALUES);
+    }
+
+    // set lower/owner
+    for (label faceI = 0; faceI < daIndex_.nLocalInternalFaces; faceI++)
+    {
+        label ownerCellI = owner[faceI];
+        label neighbourCellI = neighbour[faceI];
+
+        if (normResDict.found("pRes"))
+        {
+            pResScaling = mesh_.V()[neighbourCellI];
+        }
+
+        PetscInt rowI = daIndex_.getGlobalAdjointStateIndex("p", neighbourCellI);
+        PetscInt colI = daIndex_.getGlobalAdjointStateIndex("p", ownerCellI);
+        scalar val1 = pEqn.lower()[faceI] * pScaling / pResScaling;
+        assignValueCheckAD(val, val1);
+        MatSetValues(PCMat, 1, &colI, 1, &rowI, &val, INSERT_VALUES);
+    }
+
+    // set upper/neighbour
+    for (label faceI = 0; faceI < daIndex_.nLocalInternalFaces; faceI++)
+    {
+        label ownerCellI = owner[faceI];
+        label neighbourCellI = neighbour[faceI];
+
+        if (normResDict.found("pRes"))
+        {
+            pResScaling = mesh_.V()[ownerCellI];
+        }
+
+        PetscInt rowI = daIndex_.getGlobalAdjointStateIndex("p", ownerCellI);
+        PetscInt colI = daIndex_.getGlobalAdjointStateIndex("p", neighbourCellI);
+        scalar val1 = pEqn.upper()[faceI] * pScaling / pResScaling;
+        assignValueCheckAD(val, val1);
+        MatSetValues(PCMat, 1, &colI, 1, &rowI, &val, INSERT_VALUES);
+    }
 }
 
 void DAResidualPimpleFoam::updateIntermediateVariables()
